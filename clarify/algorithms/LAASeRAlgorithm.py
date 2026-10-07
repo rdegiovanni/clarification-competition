@@ -63,6 +63,7 @@ class LAASeRAlgorithm(ClarificationAlgorithmBase):
                     return candidate
                 elif QUESTION_KEY in response:
                     _, clarifying_question = response.split(QUESTION_KEY, 1)
+                    clarifying_question = clarifying_question[1:] if clarifying_question.startswith(":") else clarifying_question
                     clarification = env.ask_human(clarifying_question)
                     num_rounds = len(clarifications)
                     clarifications += [
