@@ -83,7 +83,6 @@ class LAASeRAlgorithm(ClarificationAlgorithmBase):
 
                 else:
                     return candidate
-
             except TooManyQuestionException:
                 print("---> LAASeR: TooManyQuestionException")
                 return candidate
