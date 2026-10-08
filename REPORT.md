@@ -61,3 +61,122 @@ text — confirm whether `READY_TO_CODE` is present without a fenced code block
 problem in `_validate_and_parse_evalplus_result`) before changing anything in
 `LAASeRAlgorithm.py`. Per the repo's working rule, any resulting change still
 needs a `scripts/evaluate.sh` before/after measurement.
+
+**Correction (see 2026-10-08 entry below)**: the "218/220 no python code block
+returned" headline above is **wrong** — it's an artifact of a mislabeling bug
+in `scripts/make_report.py`'s `classify_failure()`, not a real description of
+what happened on 218 tasks. Left in place (rather than rewritten) so the
+decision log stays honest about what we actually believed and when; see below
+for the corrected breakdown of this same run's failures.
+
+## 2026-10-08 — Root cause of the gpt-4.1-mini "pésimo" smoke test: a reporting bug + a real entry-point naming bug
+
+**Trigger**: ran `scripts/evaluate.sh --language-model openai/gpt-4.1-mini` (demo
+set, 30 tasks) to get a leaderboard-comparable number. Result was much worse
+than our Claude runs: TDS 0.5561, nDCG 0.3333, Pass@1 56.67%
+(`results/runs/20261008T112852Z_gpt41mini-demo/`), with the report claiming
+all 13 failures were "no python code block returned" — the same signature
+the previous entry above flagged as *the* dominant failure mode at full
+`val` scale (218/220). That repetition across two different models and two
+different dataset scales was suspicious enough to warrant actually reading
+the raw rows instead of trusting the report's label.
+
+### Bug #1 (reporting only): `classify_failure()` mislabels almost everything as "no code block"
+
+`_validate_and_parse_evalplus_result()` (`clarify/runtime.py`) **strips the
+` ```python `/` ``` ` fence on success** — a successfully-parsed candidate's
+saved `prompt_result` can therefore never contain the literal `` ```python ``
+substring. `scripts/make_report.py`'s old `classify_failure()` used exactly
+that substring as its test for "no code returned", so it mislabeled *every*
+non-empty failing candidate — including ones whose code ran and simply failed
+the hidden tests — as "no python code block returned".
+
+Checking the actual `results.jsonl` rows (not just the report) for the
+gpt-4.1-mini demo run: of its 13 failures, only **3** (`Mbpp/16, 56, 59`) had a
+genuinely empty `prompt_result` — the rest (10/13) had real, non-empty code
+that ran and failed (`AssertionError`/wrong output, `TypeError`, a
+`NameError`). Re-checking the full `val`-scale Claude run
+(`results/runs/20261008T093742Z_val-full/`) the same way: of its 219 failures,
+only **35** are genuinely empty — the headline "218/220" in the entry above
+undercounted "code ran but was wrong" by roughly 5x and should never have been
+read as a parsing/prompting problem at that scale.
+
+**Fix**: rewrote `classify_failure()` in `scripts/make_report.py` (dev
+tooling, not `clarify/`, so in scope per `CLAUDE.md`) to key off
+`prompt_result.strip() == ""` for "no code returned" instead of the fence
+substring, and added a `NameError`-based "function name mismatch" bucket (see
+bug #2). This only changes report *labels*, not scores — it's a correctness
+fix for a dev tool, not a submission change, so it needed no before/after
+`evaluate.sh` run on its own.
+
+### Bug #2 (real, in our algorithm): the model is never told to keep the exact `entry_point` name
+
+While re-checking the (now correctly labeled) `NameError` failures in the
+`val`-full Claude run, a clear pattern emerged: **35 of 219 failures (16%)**
+are `NameError: name '<entry_point>' is not defined`, where the submitted code
+defines a *different*, syntactically-valid function. Example —
+`HumanEval/6` (`entry_point` = `parse_nested_parens`): the task prompt in the
+`humaneval_wu_ambiguous*` variant files presents the stub as
+`def candidate(paren_string: str) -> List[int]:` instead of the real name.
+The model (correctly, even) completed the stub exactly as shown, submitting
+`def candidate(...)` — but the hidden tests call `parse_nested_parens(...)`,
+so it fails every test regardless of whether the logic is right. 34/35 of
+these are `HumanEval` tasks (one, `Mbpp/782`, is `Mbpp`); they're
+concentrated in exactly the "ambiguous"/perturbed variant files that
+rename the stub's function on purpose. Our `READY_TO_CODE_TEMPLATE` already
+received `problem["entry_point"]` (the *correct* name, from the SDK, not from
+the untrusted prompt text) but only used it as a label
+("Task (function to implement: `{entry_point}`)") — nothing told the model
+that name must win over whatever the prompt text itself shows.
+
+**Fix**: added one explicit paragraph to `READY_TO_CODE_TEMPLATE` in
+`clarify/algorithms/LAASeRAlgorithm.py`:
+
+> Important: your final function must be named exactly `{entry_point}`, even if
+> the task text above uses a different (e.g. generic or placeholder) name for
+> it. The hidden tests call the function `{entry_point}` by that exact name, so
+> any other name fails every test regardless of whether the logic is correct.
+
+Deliberately did **not** also wrap `{prompt}` in a fresh triple-backtick fence
+(the obvious companion fix for the already-broken single-backtick wrapping) —
+`data/mbpp/mbpp_akli_syntax_and_formatting_sf.jsonl` has prompts that already
+contain literal `` ``` `` as part of the perturbation (e.g. `Mbpp/2`'s prompt
+starts with `` ```Write a function... ``), so adding our own triple-backtick
+fence around `{prompt}` would self-close early on exactly that variant family.
+Left for a future, separately-measured change.
+
+### Before/after measurement
+
+Per `CLAUDE.md`'s working rule, measured with `scripts/evaluate.sh` before
+changing anything, demo set (30 tasks, Mbpp-only), `openai/gpt-4.1-mini`:
+
+| Metric | Before (`acf8dfd`, `20261008T112852Z_gpt41mini-demo`) | After (`77b9204`+fix, `20261008T114353Z_gpt41mini-entrypointfix`) | Δ |
+|---|---|---|---|
+| TDS | 0.5561 | 0.4561 | ▼ -0.1000 |
+| nDCG | 0.3333 | 0.5000 | ▲ +0.1667 |
+| Pass@1 | 56.67% | 46.67% | ▼ -10.00pp |
+| Clarification rate | 36.67% | 53.33% | ▲ +16.66pp |
+
+**This is not evidence the fix hurts.** Two reasons, both expected going in:
+
+1. **The demo set is Mbpp-only, and the entry-point bug we fixed is 34/35
+   `HumanEval`** (the "ambiguous" stub-renaming variants live in
+   `data/humaneval/`, not `data/mbpp/`) — this 30-task slice barely exercises
+   the thing we changed. Confirmed directly: the new run's failures (16 total)
+   break down as 9 "wrong output", 4 "other unhandled error", 3 genuinely "no
+   code returned" — zero real function-name mismatches, same as before the
+   fix. The fix was a no-op on this slice, as expected.
+2. **`temperature=0.7` plus `n=30`** means a handful of unrelated tasks
+   flipping pass/fail between runs moves TDS by ~0.03 each — `CLAUDE.md`
+   already warns a single demo-scale before/after isn't proof of anything.
+   The failing-task-ID sets only partially overlap between the two runs
+   (`Mbpp/4, 14, 57, 62, 69` are new failures; `Mbpp/9, 61` newly pass),
+   consistent with sampling noise, not a systematic regression from the
+   prompt change.
+
+**Real test in progress**: kicked off
+`scripts/evaluate.sh --split val --language-model openai/gpt-4.1-mini` (770
+tasks, mixed Mbpp+HumanEval, the dataset slice that actually contains the
+entry-point bug) as the decisive before/after. Will append the result here
+once it completes — this is the number that actually matters for whether the
+fix helped.

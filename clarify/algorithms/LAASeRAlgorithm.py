@@ -32,7 +32,12 @@ Please find below a coding task.
 Task (function to implement: `{entry_point}`):
 `{prompt}`
 
-Please review it and determine if you have everything to implement it, 
+Important: your final function must be named exactly `{entry_point}`, even if
+the task text above uses a different (e.g. generic or placeholder) name for
+it. The hidden tests call the function `{entry_point}` by that exact name, so
+any other name fails every test regardless of whether the logic is correct.
+
+Please review it and determine if you have everything to implement it,
 and write READY_TO_CODE followed by ```python and ```
 
 If it is impossible for you to implement it because the description lacks crucial details, 

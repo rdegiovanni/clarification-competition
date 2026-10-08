@@ -99,14 +99,23 @@ def classify_failure(result: dict) -> str | None:
     if result["success"]:
         return None
     prompt_result = result.get("prompt_result") or ""
-    test_result = (result.get("test_result") or "").lower()
+    test_result = result.get("test_result") or ""
+    test_result_lower = test_result.lower()
     if "[exception]" in prompt_result.lower():
         return "exception raised inside the algorithm"
-    if "timeout" in test_result:
+    if "timeout" in test_result_lower:
         return "evalplus execution timeout"
-    if "```python" not in prompt_result:
+    # NOTE: a *successfully* parsed candidate never contains "```python" --
+    # _validate_and_parse_evalplus_result() strips the fence on success, so that
+    # substring check alone can't tell "no code" apart from "code ran and failed
+    # the hidden tests". Emptiness is the real signal for "no code at all".
+    if not prompt_result.strip():
         return "no python code block returned"
-    return "code ran but produced the wrong output"
+    if "nameerror" in test_result_lower:
+        return "function name mismatch (NameError calling the entry point)"
+    if "assertionerror" in test_result_lower:
+        return "code ran but produced the wrong output"
+    return "code ran but failed with an unhandled error"
 
 
 def failure_breakdown(results: list[dict]) -> list[tuple[str, int]]:
