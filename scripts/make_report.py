@@ -219,10 +219,7 @@ def main() -> None:
         ("Algorithm file", args.clarify_py),
         ("Model", official["model"]),
         ("Temperature", args.temperature or "0.7 (SDK default)"),
-        (
-            "Split / dataset",
-            f"{split_field} ({dataset_field})" if split_field != "demo" else "demo (30 tasks)",
-        ),
+        ("Split / dataset", f"{split_field} ({dataset_field})"),
         ("Tasks evaluated", str(n_tasks)),
         ("Unit tests (tests/)", args.unittest_status),
     ]:
