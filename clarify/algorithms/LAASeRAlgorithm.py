@@ -73,7 +73,7 @@ class LAASeRAlgorithm(ClarificationAlgorithmBase):
                 else:
                     return candidate
 
-            except (TooManyQuestionException | LimitsExceededException):
+            except (TooManyQuestionException, LimitsExceededException):
                 return candidate
             except Exception:
                 # The response might not contain an answer, assume a question is raised.
