@@ -1,0 +1,4 @@
+timestamp,commit,dirty,algorithm,clarify_py,model,split,dataset,n_tasks,tds,ndcg,pass_at_1,clarification_rate,over_asking_rate,avg_cost_usd,unittest_status,run_dir
+2026-10-08T08:46:42+00:00,4467c38,yes,LAASeRAlgorithm,clarify/algorithms/LAASeRAlgorithm.py,anthropic/claude-sonnet-5,demo,data/mbpp_demo_test.jsonl,30,0.8307,0.0333,0.8333,0.1667,0.0000,0.003198,PASSED,results/runs/20261008T084523Z_LAASeRAlgorithm
+2026-10-08T09:11:48+00:00,4467c38,yes,LAASeRAlgorithm,clarify/algorithms/LAASeRAlgorithm.py,anthropic/claude-sonnet-5,demo,data/mbpp_demo_test.jsonl,30,0.7614,0.1000,0.7667,0.1333,0.0000,0.003324,PASSED,results/runs/20261008T091035Z_LAASeRAlgorithm
+2026-10-08T09:14:58+00:00,4467c38,yes,LAASeRAlgorithm,clarify/algorithms/LAASeRAlgorithm.py,anthropic/claude-sonnet-5,demo,data/mbpp_demo_test.jsonl,30,0.8254,0.1667,0.8333,0.2333,0.0000,0.003725,PASSED,results/runs/20261008T091335Z_LAASeRAlgorithm
