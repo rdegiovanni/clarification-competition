@@ -1,8 +1,19 @@
-"""Bribery algorithm.
+# SPDX-FileCopyrightText: 2026 Submitter <submitter@email.com>
+#
+# SPDX-License-Identifier: Open Source License like MIT, Apache 2.0, ...
+
+"""Algorithm name.
+
+LAASeR (Bribery) algorithm.
 
 We make the LLM aware that its output will be part of a competition.
 We explain to it that the main goal is to implement the correct function,
 but unnecessary questions are penalized.
+
+
+Team: LAASeR - LIST
+Team Members: Matias Brizzio, Jordi Cabot, Renzo Degiovanni
+Main Contact: main.contact@email.com
 """
 
 from __future__ import annotations
@@ -73,8 +84,13 @@ class LAASeRAlgorithm(ClarificationAlgorithmBase):
                 else:
                     return candidate
 
-            except (TooManyQuestionException | LimitsExceededException):
+            except TooManyQuestionException:
+                print("---> LAASeR: TooManyQuestionException")
+                return candidate
+            except LimitsExceededException:
+                print("---> LAASeR: LimitsExceededException")
                 return candidate
             except Exception:
                 # The response might not contain an answer, assume a question is raised.
+                print("---> LAASeR: Exception")
                 return candidate
