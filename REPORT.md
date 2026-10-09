@@ -385,3 +385,11 @@ champion-prompt variants against this same 30-task sample, or pivot to testing c
 against a different seed/sample (to rule out this specific sample being an unfavorable one for any
 wording change), or explore a structurally different approach (e.g. the `LAASeR3Algorithm`/evidence
 -gated plan already drafted) instead of further prompt-only tweaks.
+
+**Checkpoint decision**: at this four-consecutive-non-improving stop point, the call was made to
+pause automatic Fase 3 experimentation here rather than keep spending runs on more wording
+variants, a different seed, or a structural pivot. `LAASeR_Repair` remains the champion
+(TDS 0.7222 ± 0.0192 on this smoke sample). All four non-improving challengers
+(`LAASeR_RepairV2`, `LAASeR_Signature`, `LAASeR_EntryTrust`, `LAASeR_ConcreteQuestion`) are kept in
+`clarify/algorithms/` per the mission rules, not deleted. Next steps are for the team to decide
+before any further experiment is launched.
