@@ -1,11 +1,11 @@
-# Run report — LLMClarification (2026-10-09T14:03:22+00:00)
+# Run report — LAASeR_Repair (2026-10-09T13:49:55+00:00)
 
 ## Metadata
 
 | Field | Value |
 |---|---|
 | Commit | `e233e53` (dirty — uncommitted changes) |
-| Algorithm file | clarify/baselines/direct.py |
+| Algorithm file | clarify/algorithms/LAASeR_Repair.py |
 | Model | openai/gpt-4.1-mini |
 | Temperature | 0.7 (SDK default) |
 | Split / dataset | demo (smoke(classes=Mbpp,HumanEval,n=30)) |
@@ -23,24 +23,24 @@ Computed with `evaluate_responses.py`'s own `_compute_output_row` / `_turn_disco
 | Metric | Value | Meaning |
 |---|---|---|
 | **TDS** (ranking metric) | 0.7333 | turn-discounted success — higher is better |
-| **nDCG** (tie-break) | 0.0000 | clarification quality — higher is better |
+| **nDCG** (tie-break) | 0.0333 | clarification quality — higher is better |
 | Pass@1 | 73.33% | raw pass rate |
-| Clarification rate | 0.00% | % tasks where ≥1 question was asked |
+| Clarification rate | 3.33% | % tasks where ≥1 question was asked |
 | Over-asking rate | 0.00% | % well-specified tasks needlessly questioned |
-| Avg. cost / task | $0.000425 | prompt cost only, reported, no rank effect |
+| Avg. cost / task | $0.000262 | prompt cost only, reported, no rank effect |
 
 > Sampling temperature is 0.7 (non-zero), so re-running on the exact same commit/dataset will still shift these numbers by a point or two — treat small deltas below as noise, not signal. Only trust a difference that holds up across more than one run.
 
 ## Vs. previous run (same algorithm/model/split/dataset)
 
-Previous: commit `e233e53` at 2026-10-09T14:02:21+00:00
+Previous: commit `3702ea6` at 2026-10-09T13:18:16+00:00
 
 | Metric | Previous | Now | Δ |
 |---|---|---|---|
-| TDS | 0.7000 | 0.7333 | ▲ +0.0333 |
-| nDCG | 0.0000 | 0.0000 | = +0.0000 |
+| TDS | 0.6974 | 0.7333 | ▲ +0.0359 |
+| nDCG | 0.1000 | 0.0333 | ▼ -0.0667 |
 | Pass@1 | 0.7000 | 0.7333 | ▲ +0.0333 |
-| Clarification rate | 0.0000 | 0.0000 | = +0.0000 |
+| Clarification rate | 0.1000 | 0.0333 | ▼ -0.0667 |
 | Over-asking rate | 0.0000 | 0.0000 | = +0.0000 |
 
 ## Public leaderboard position (informational only)
@@ -49,7 +49,7 @@ Previous: commit `e233e53` at 2026-10-09T14:02:21+00:00
 
 | Rank | Algorithm | Team | Model | TDS |
 |---|---|---|---|---|
-| → | **LLMClarification (this run)** | us | openai/gpt-4.1-mini | **0.7333** |
+| → | **LAASeR_Repair (this run)** | us | openai/gpt-4.1-mini | **0.7333** |
 | 1 | GatedClarification | STIL-ETS | openai/gpt-4.1-mini | 0.6410 |
 | 2 | ContractFirstClarifier | D4vidHuang | openai/gpt-4.1-mini | 0.5973 |
 | 3 | Okanagan | baseline | openai/gpt-4.1-mini | 0.5917 |
