@@ -223,3 +223,52 @@ Per the mission's non-negotiable rules it is **kept, not deleted**, as a documen
 variant (experiment #1 of the Fase-3 safety cap). Moving on to the Fase 3 hypothesis list's #1
 item next (signature/arity clarifying question for stub-less MBPP tasks — targets `Mbpp/229`/
 `Mbpp/559` directly, the single strongest multi-instance pattern found in the Fase 1 analysis).
+
+## 2026-10-09 — Fase 3 challenger #2 (`LAASeR_Signature`): also does not beat the champion, and doesn't even fix what it targeted
+
+**Fase 3 challenger #2**: `clarify/algorithms/laaser_signature.py` (`LAASeR_Signature`) — hypothesis
+#1 from `docs/failure-analysis.md`'s prioritized list. Structurally an exact copy of the champion
+`LAASeR_Repair` (same repair loop, same format/entry-point/parsing-error recovery) with exactly one
+isolated change: an added paragraph in `READY_TO_CODE_TEMPLATE` warning the model not to assume a
+function's parameter list from prose alone when no stub/signature is shown, and framing that
+uncertainty itself as a valid reason to ask. Targeted directly at `Mbpp/229`/`Mbpp/559` (the
+`(arr, n)`-style implicit-arity pattern documented in Fase 1). Same 30-task seed-42 smoke set, 3
+runs, `openai/gpt-4.1-mini`:
+
+| Run | TDS | Pass@1 | Clarification rate |
+|---|---|---|---|
+| r1 | 0.6640 | 66.67% | 16.67% |
+| r2 | 0.6640 | 66.67% | 13.33% |
+| r3 | 0.6640 | 66.67% | 13.33% |
+| **mean ± stdev** | **0.6640 ± 0.0000** | **66.67% ± 0.00pp** | **15.56% ± 1.93pp** |
+
+Champion `LAASeR_Repair` on the identical 3-seed setup: TDS 0.7222 ± 0.0192, Pass@1 72.22% ±
+1.92pp, clarification rate 3.33%. The gap (0.058 TDS) exceeds either group's stdev and holds
+across all 3 runs — every `LAASeR_Signature` run is below the champion's *lowest* run. Over-asking
+stayed at 0.00% in both (the extra questions aren't being flagged as unwarranted by the harness),
+but the clarification rate nearly 5x'd (3.33% → 15.56% mean) with no corresponding Pass@1 gain —
+the extra turns cost TDS directly via the turn-discount even where the eventual answer was still
+correct.
+
+**The hypothesis itself failed empirically, not just the net score**: checked `clarification_history`
+for `Mbpp/229`/`Mbpp/559` directly in all 3 runs' `results.jsonl` — the model **never asked** about
+either task in any of the 3 runs (`clarification_history: []` throughout, identical to the
+champion). The added warning paragraph did make the model ask more *elsewhere*, but not on the two
+specific tasks it was written for. Task-matrix diff (most recent run vs. champion): `Signature`
+newly loses `HumanEval/154`, `Mbpp/755`, and `Mbpp/914` (all three pass under the champion), and
+recovers nothing. Full matrix: `results/internal_leaderboard.md`.
+
+**Verdict**: `LAASeR_Signature` does **not** beat the champion — a clear regression, held across
+all 3 runs (in fact zero inter-run variance on TDS/Pass@1, a stronger signal than usual noise would
+produce), and it fails to achieve the one thing it was built for. Kept, not deleted, as experiment
+#2 of the Fase-3 safety cap (2 of 25 experiments used, 2 consecutive non-improving). Takeaway for
+future attempts at this same hypothesis: a generic "ask if the signature is uncertain" nudge isn't
+enough to make the model actually ask on these two specific tasks — the prose for `Mbpp/229`/
+`Mbpp/559` apparently reads as fully-specified to the model even with the warning in place, and the
+nudge's main side effect was indiscriminately raising the ask rate elsewhere instead. A future
+attempt would need something more targeted (e.g. explicitly flagging the "redundant array-length
+parameter" convention by name, or detecting array/list-typed prompts with no stub as a trigger)
+rather than a generic epistemic-humility warning. Moving on to the Fase 3 hypothesis list's #3 item
+next (standalone entry-point/signature-trust wording strengthening, measured in isolation) since
+#2 (self-verification) is more expensive and #1's natural next iteration needs more thought before
+spending another experiment slot on it.

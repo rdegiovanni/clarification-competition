@@ -1,4 +1,4 @@
-# Run report — LAASeR_Signature (2026-10-09T14:40:31+00:00)
+# Run report — LAASeR_Signature (2026-10-09T14:39:27+00:00)
 
 ## Metadata
 
@@ -25,22 +25,22 @@ Computed with `evaluate_responses.py`'s own `_compute_output_row` / `_turn_disco
 | **TDS** (ranking metric) | 0.6640 | turn-discounted success — higher is better |
 | **nDCG** (tie-break) | 0.1333 | clarification quality — higher is better |
 | Pass@1 | 66.67% | raw pass rate |
-| Clarification rate | 13.33% | % tasks where ≥1 question was asked |
+| Clarification rate | 16.67% | % tasks where ≥1 question was asked |
 | Over-asking rate | 0.00% | % well-specified tasks needlessly questioned |
-| Avg. cost / task | $0.000379 | prompt cost only, reported, no rank effect |
+| Avg. cost / task | $0.000400 | prompt cost only, reported, no rank effect |
 
 > Sampling temperature is 0.7 (non-zero), so re-running on the exact same commit/dataset will still shift these numbers by a point or two — treat small deltas below as noise, not signal. Only trust a difference that holds up across more than one run.
 
 ## Vs. previous run (same algorithm/model/split/dataset)
 
-Previous: commit `812518b` at 2026-10-09T14:39:27+00:00
+Previous: commit `812518b` at 2026-10-09T14:37:56+00:00
 
 | Metric | Previous | Now | Δ |
 |---|---|---|---|
 | TDS | 0.6640 | 0.6640 | = +0.0000 |
-| nDCG | 0.1333 | 0.1333 | = +0.0000 |
+| nDCG | 0.1667 | 0.1333 | ▼ -0.0334 |
 | Pass@1 | 0.6667 | 0.6667 | = +0.0000 |
-| Clarification rate | 0.1667 | 0.1333 | ▼ -0.0334 |
+| Clarification rate | 0.1667 | 0.1667 | = +0.0000 |
 | Over-asking rate | 0.0000 | 0.0000 | = +0.0000 |
 
 ## Public leaderboard position (informational only)
@@ -67,12 +67,13 @@ Previous: commit `812518b` at 2026-10-09T14:39:27+00:00
 
 | Reason | Count |
 |---|---|
-| code ran but produced the wrong output | 5 |
 | code ran but failed with an unhandled error | 5 |
+| code ran but produced the wrong output | 4 |
+| no python code block returned | 1 |
 
 ## Failing task IDs
 
-HumanEval/139, HumanEval/154, HumanEval/55, Mbpp/143, Mbpp/229, Mbpp/26, Mbpp/559, Mbpp/755, Mbpp/759, Mbpp/914
+HumanEval/139, HumanEval/154, HumanEval/55, Mbpp/115, Mbpp/143, Mbpp/229, Mbpp/26, Mbpp/559, Mbpp/755, Mbpp/759
 
 ## Suggested next steps
 
