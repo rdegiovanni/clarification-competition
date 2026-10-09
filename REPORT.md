@@ -393,3 +393,77 @@ variants, a different seed, or a structural pivot. `LAASeR_Repair` remains the c
 (`LAASeR_RepairV2`, `LAASeR_Signature`, `LAASeR_EntryTrust`, `LAASeR_ConcreteQuestion`) are kept in
 `clarify/algorithms/` per the mission rules, not deleted. Next steps are for the team to decide
 before any further experiment is launched.
+
+## 2026-10-09 — Fase 3 challenger five (`LAASeR_Gate`): first structural pivot, loses on net score but confirms a major mechanism
+
+**Hypothesis**: at the checkpoint above, the team's own read of `clarify/env.py`'s simulated-human
+system prompt (`HUMAN_SYSTEM_PROMPT`) revealed *why* the champion's `Mbpp/26` question failed: the
+simulated human grades every question against five criteria (CRITICALITY / SEARCH SPACE / LEAKAGE
+/ ATOMICITY / OBJECTIVITY) before answering, and a question that bundles two sub-asks ("what is
+the parameter k, **and** what elements should be checked?") fails ATOMICITY, which the prompt's
+own rules say gets a deliberately vague, non-committal answer rather than a precise one. Separately,
+`laaser_signature.py`'s generic "don't assume the parameter list" warning had already been shown
+(challenger #2) to never actually fire on the arity-ambiguous tasks it targeted. `LAASeR_Gate`
+(`clarify/algorithms/laaser_gate.py`) attacks both with one structural change — splitting the
+champion's single "decide to ask or code" call into two: a **DRAFT** call that writes the
+candidate plus a self-reported `ASSUMPTIONS:` list of anything inferred but not stated in the
+task text, and a **GATE** call that is shown the draft and its own assumptions and must pick at
+most one that would actually change correctness, asking a single atomic, concrete, closed-form
+question about it (or `DONE` if none would).
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate | Cost/task |
+|---|---|---|---|---|---|
+| r1 | 0.6082 | 1.0000 | 63.33% | 100.00% | $0.001315 |
+| r2 | 0.6402 | 0.9667 | 66.67% | 100.00% | $0.001294 |
+| r3 | 0.5762 | 1.0000 | 60.00% | 100.00% | $0.001309 |
+| **Mean ± stdev** | **0.6174 ± 0.0320** | **0.9889 ± 0.0192** | **64.44% ± 3.34pp** | **100.00% ± 0.00pp** | **$0.001306** |
+
+Champion `LAASeR_Repair` on the identical setup: TDS 0.7222 ± 0.0192, nDCG 0.0333 ± 0.0000,
+Pass@1 72.22% ± 1.92pp, clarification rate 3.33%, cost/task $0.000289. The TDS gap (0.1048)
+exceeds either group's stdev and holds across all 3 runs — `LAASeR_Gate` does **not** beat the
+champion, and costs ~4.5x more per task (two LLM calls per round instead of one; flagged per the
+mission's cost-tracking rule, though 4.5x is modest next to ClarifyGPT's ~34x).
+
+**Mechanism check, two findings, one confirmed strongly and one still unresolved:**
+
+1. **Confirmed, strong**: the atomic/concrete-question design works almost perfectly against the
+   simulated human's real rubric. Across all 90 questions asked in the 3 runs (30 tasks × 3 runs,
+   100% clarification rate), **89/90 scored QUALITY=3** (the one QUALITY=1 outlier was in r2); mean
+   nDCG 0.9889 vs. the champion's 0.0333 — a ~30x improvement in question quality. Directly
+   verified on the previously-documented `Mbpp/26` case: this time the question is single-fact and
+   concrete ("If the input is `check_k_elements([(1, 2), (2, 3)], 3)`, should the function return
+   True?") and gets back a precise, confident, QUALITY=3 answer — the exact failure mode the user
+   flagged (abstract/bundled question → vague wrong answer) is gone at the question-quality level.
+   `HumanEval/55` — the case `docs/failure-analysis.md` explicitly flagged as *not fixable* by
+   self-verification against the prompt's own doctests (the hidden test exercises an edge case the
+   stated doctests don't cover) — is fixed here directly by asking: `Should fib(0) return 0, 1, or
+   raise an error?` → `fib(0) should return 0` → the task now passes. A real, mechanism-level win.
+2. **Still unresolved**: the gate essentially never says `DONE` — 100.00% clarification rate in all
+   3 runs, 0 occurrences of "no question" observed. Forcing the DRAFT step to always produce an
+   `ASSUMPTIONS:` list gives the GATE step something plausible-sounding to flag on *every* task,
+   including ones the champion already solves without asking — that's the direct cost behind the
+   Pass@1 drop (64.44% vs 72.22%). Task-level diff (r3 vs. the champion's most recent matching run):
+   `LAASeR_Gate` newly loses `Mbpp/115, Mbpp/251, Mbpp/755, Mbpp/90, HumanEval/7, HumanEval/6` (all
+   six pass under the champion) and newly gains `HumanEval/108, HumanEval/55` — net -4 tasks, this
+   over-asking cost outweighing the quality win on this sample. Separately, the signature/arity
+   hypothesis (challenger #2's original target) is **still not solved**: on `Mbpp/229` the gate asks
+   about zero-handling, and on `Mbpp/559` about empty-list behavior — real, atomic, QUALITY=3
+   questions, but neither is the actual missing-parameter root cause from `docs/failure-analysis.md`.
+   The model's self-reported `ASSUMPTIONS:` list apparently never spontaneously includes "there may
+   be a parameter the text never names" as a candidate — the same blind spot `laaser_signature.py`
+   had, just relocated one level up (into what counts as a self-reported assumption rather than
+   into a generic warning).
+
+**Verdict**: `LAASeR_Gate` does **not** beat the champion on net score — kept, not deleted, per the
+mission's rules, logged as experiment five. Unlike challengers #1–#4, this is not a clean "no
+effect" result: it isolates the real lever (question *atomicity*, confirmed with a ~30x nDCG
+improvement and one concrete Pass@1 win on `HumanEval/55`) from the real cost (an under-selective
+gate that asks on everything). The natural next iteration is **not** another full architecture
+change, but tightening the GATE call's bar for asking — e.g. explicit cost-framing ("asking costs
+you this task's turn-discount; only ask if the two most likely interpretations of this assumption
+would make the candidate behave *differently* on a case the task text could plausibly test") —
+plus giving the DRAFT step's `ASSUMPTIONS:` prompt an explicit, named prompt to consider "a
+parameter the text never names" as its own assumption category, rather than leaving it to be found
+incidentally. Not yet attempted; next experiment slot.

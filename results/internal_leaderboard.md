@@ -6,54 +6,148 @@ Aggregates `results/history.csv` into mean +/- stdev per (algorithm, model, spli
 
 | Algorithm | clarify_py | Model | Split/dataset | n_runs | TDS | nDCG | Pass@1 | Clarification rate | Over-asking rate | Avg cost/task |
 |---|---|---|---|---|---|---|---|---|---|---|
+| LAASeR_Gate | clarify/algorithms/laaser_gate.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6082 +/- 0.0320 | 0.9889 +/- 0.0192 | 63.33% +/- 3.34pp | 100.00% +/- 0.00pp | 0.00% +/- 0.00pp | $0.001306 +/- 0.000011 |
 | LAASeR_ConcreteQuestion | clarify/algorithms/laaser_concretequestion.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6876 +/- 0.0193 | 0.0889 +/- 0.0192 | 68.89% +/- 1.92pp | 10.00% +/- 0.00pp | 0.00% +/- 0.00pp | $0.000319 +/- 0.000018 |
 | Okanagan | clarify/baselines/okanagan.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6832 +/- 0.0008 | 0.7000 +/- 0.0333 | 70.00% +/- 0.00pp | 70.00% +/- 3.33pp | 0.00% +/- 0.00pp | $0.000552 +/- 0.000010 |
 | ClarifyGPT | clarify/baselines/clarifygpt.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6378 +/- 0.0373 | 0.2222 +/- 0.0509 | 64.45% +/- 3.85pp | 27.78% +/- 5.09pp | 0.00% +/- 0.00pp | $0.009829 +/- 0.000890 |
+| LAASeRAlgorithm | clarify/algorithms/LAASeRAlgorithm.py | openai/gpt-4.1-mini | val (split:val) | 1 | 0.5693 +/- 0.0000 | 0.2117 +/- 0.0000 | 57.53% +/- 0.00pp | 25.45% +/- 0.00pp | 10.36% +/- 0.00pp | $0.000351 +/- 0.000000 |
 | LAASeR_EntryTrust | clarify/algorithms/laaser_entrytrust.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6556 +/- 0.0193 | 0.0556 +/- 0.0193 | 65.56% +/- 1.93pp | 6.67% +/- 0.00pp | 0.00% +/- 0.00pp | $0.000275 +/- 0.000005 |
 | LAASeR_Signature | clarify/algorithms/laaser_signature.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6640 +/- 0.0000 | 0.1444 +/- 0.0193 | 66.67% +/- 0.00pp | 15.56% +/- 1.93pp | 0.00% +/- 0.00pp | $0.000390 +/- 0.000011 |
+| LAASeR_Repair | clarify/algorithms/LAASeR_Repair.py | openai/gpt-4.1-mini | val (split:val) | 1 | 0.5643 +/- 0.0000 | 0.2065 +/- 0.0000 | 57.01% +/- 0.00pp | 25.19% +/- 0.00pp | 9.84% +/- 0.00pp | $0.000308 +/- 0.000000 |
 | LAASeR_RepairV2 | clarify/algorithms/laaser_repair_v2.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6778 +/- 0.0192 | 0.0333 +/- 0.0000 | 67.78% +/- 1.92pp | 3.33% +/- 0.00pp | 0.00% +/- 0.00pp | $0.000290 +/- 0.000015 |
 | LLMClarification | clarify/baselines/direct.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.7111 +/- 0.0192 | 0.0000 +/- 0.0000 | 71.11% +/- 1.92pp | 0.00% +/- 0.00pp | 0.00% +/- 0.00pp | $0.000415 +/- 0.000024 |
-| LAASeR3Algorithm | clarify/algorithms/lasser3.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6722 +/- 0.0640 | 1.0000 +/- 0.0000 | 70.00% +/- 6.67pp | 100.00% +/- 0.00pp | 0.00% +/- 0.00pp | $0.001750 +/- 0.000036 |
+| LAASeR3Algorithm | clarify/algorithms/lasser3.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 5 | 0.6434 +/- 0.0788 | 0.8667 +/- 0.2982 | 66.67% +/- 8.82pp | 86.67% +/- 29.82pp | 20.00% +/- 44.72pp | $0.001683 +/- 0.000151 |
 | LAASeRAlgorithm | clarify/algorithms/LAASeRAlgorithm.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6333 +/- 0.0000 | 0.0333 +/- 0.0000 | 63.33% +/- 0.00pp | 3.33% +/- 0.00pp | 0.00% +/- 0.00pp | $0.000254 +/- 0.000009 |
-| LAASeR_Repair | clarify/algorithms/LAASeR_Repair.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.7222 +/- 0.0192 | 0.0333 +/- 0.0000 | 72.22% +/- 1.92pp | 3.33% +/- 0.00pp | 0.00% +/- 0.00pp | $0.000289 +/- 0.000024 |
+| LAASeR_Repair | clarify/algorithms/LAASeR_Repair.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 4 | 0.7160 +/- 0.0200 | 0.0500 +/- 0.0334 | 71.67% +/- 1.92pp | 5.00% +/- 3.34pp | 0.00% +/- 0.00pp | $0.000296 +/- 0.000024 |
+| LAASeR3Algorithm | clarify/algorithms/lasser3.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,n=30)) | 1 | 0.4801 +/- 0.0000 | 1.0000 +/- 0.0000 | 50.00% +/- 0.00pp | 100.00% +/- 0.00pp | 0.00% +/- 0.00pp | $0.001582 +/- 0.000000 |
+| LAASeRAlgorithm | clarify/algorithms/LAASeRAlgorithm.py | openai/gpt-4.1-mini | demo (data/mbpp_demo_test.jsonl) | 2 | 0.5061 +/- 0.0707 | 0.4166 +/- 0.1179 | 51.67% +/- 7.07pp | 45.00% +/- 11.78pp | 0.00% +/- 0.00pp | $0.000282 +/- 0.000047 |
+| LAASeRAlgorithm | clarify/algorithms/LAASeRAlgorithm.py | anthropic/claude-sonnet-5 | val (split:val) | 1 | 0.7120 +/- 0.0000 | 0.0701 +/- 0.0000 | 71.56% +/- 0.00pp | 16.75% +/- 0.00pp | 4.66% +/- 0.00pp | $0.008123 +/- 0.000000 |
+| LAASeRAlgorithm | clarify/algorithms/LAASeRAlgorithm.py | anthropic/claude-sonnet-5 | demo (data/mbpp_demo_test.jsonl) | 4 | 0.8280 +/- 0.0545 | 0.1083 +/- 0.0569 | 83.33% +/- 5.44pp | 17.50% +/- 4.19pp | 0.00% +/- 0.00pp | $0.003469 +/- 0.000249 |
 
 ## Task x algorithm matrix (most recent run per group; pass=1, fail=0, '-'=no data)
 
-| Task | LAASeR_ConcreteQuestion (laaser_concretequestion.py) | Okanagan (okanagan.py) | ClarifyGPT (clarifygpt.py) | LAASeR_EntryTrust (laaser_entrytrust.py) | LAASeR_Signature (laaser_signature.py) | LAASeR_RepairV2 (laaser_repair_v2.py) | LLMClarification (direct.py) | LAASeR3Algorithm (lasser3.py) | LAASeRAlgorithm (LAASeRAlgorithm.py) | LAASeR_Repair (LAASeR_Repair.py) |
-|---|---|---|---|---|---|---|---|---|---|---|
-| HumanEval/107 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| HumanEval/108 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 |
-| HumanEval/129 | 1 | 0 | 1 | 0 | 1 | 1 | 1 | 1 | 0 | 1 |
-| HumanEval/139 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| HumanEval/143 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| HumanEval/151 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| HumanEval/154 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 1 |
-| HumanEval/23 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| HumanEval/50 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| HumanEval/55 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
-| HumanEval/56 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| HumanEval/59 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| HumanEval/6 | 1 | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 1 |
-| HumanEval/7 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| HumanEval/8 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| Mbpp/105 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| Mbpp/115 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| Mbpp/143 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Mbpp/229 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Mbpp/251 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| Mbpp/26 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Mbpp/282 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| Mbpp/559 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Mbpp/655 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| Mbpp/693 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| Mbpp/755 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1 |
-| Mbpp/759 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| Mbpp/760 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| Mbpp/90 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 0 | 1 | 1 |
-| Mbpp/914 | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 0 | 1 |
+| Task | LAASeR_Gate (laaser_gate.py) | LAASeR_ConcreteQuestion (laaser_concretequestion.py) | Okanagan (okanagan.py) | ClarifyGPT (clarifygpt.py) | LAASeRAlgorithm (LAASeRAlgorithm.py) | LAASeR_EntryTrust (laaser_entrytrust.py) | LAASeR_Signature (laaser_signature.py) | LAASeR_Repair (LAASeR_Repair.py) | LAASeR_RepairV2 (laaser_repair_v2.py) | LLMClarification (direct.py) | LAASeR3Algorithm (lasser3.py) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| HumanEval/107 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| HumanEval/108 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| HumanEval/109 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/115 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/117 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| HumanEval/120 | - | - | - | - | 0 | - | - | 1 | - | - | - |
+| HumanEval/129 | 1 | 1 | 0 | 1 | - | 0 | 1 | - | 1 | 1 | 1 |
+| HumanEval/131 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| HumanEval/133 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| HumanEval/139 | 0 | 0 | 0 | 0 | - | 0 | 0 | - | 0 | 0 | 0 |
+| HumanEval/142 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/143 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| HumanEval/145 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/15 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/151 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| HumanEval/154 | 1 | 0 | 0 | 0 | - | 0 | 0 | - | 0 | 1 | 0 |
+| HumanEval/161 | - | - | - | - | 1 | - | - | 0 | - | - | - |
+| HumanEval/17 | - | - | - | - | 0 | - | - | 1 | - | - | - |
+| HumanEval/22 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| HumanEval/23 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| HumanEval/3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| HumanEval/36 | - | - | - | - | 0 | - | - | 1 | - | - | - |
+| HumanEval/37 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/4 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| HumanEval/40 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| HumanEval/50 | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 1 |
+| HumanEval/55 | 1 | 0 | 1 | 0 | - | 0 | 0 | - | 0 | 0 | 1 |
+| HumanEval/56 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| HumanEval/57 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| HumanEval/59 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| HumanEval/6 | 0 | 1 | 1 | 1 | 0 | 1 | 1 | 0 | 0 | 1 | 1 |
+| HumanEval/60 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/65 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/66 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/69 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/7 | 0 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| HumanEval/72 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| HumanEval/73 | - | - | - | - | 0 | - | - | 1 | - | - | - |
+| HumanEval/74 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/8 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| HumanEval/82 | - | - | - | - | 1 | - | - | 0 | - | - | - |
+| HumanEval/86 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| HumanEval/98 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/100 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/104 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/105 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| Mbpp/115 | 0 | 1 | 1 | 0 | - | 1 | 1 | - | 1 | 1 | 1 |
+| Mbpp/128 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/143 | 0 | 0 | 0 | 0 | - | 0 | 0 | - | 0 | 0 | 0 |
+| Mbpp/160 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/167 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/197 | - | - | - | - | 1 | - | - | 0 | - | - | - |
+| Mbpp/215 | - | - | - | - | 1 | - | - | 0 | - | - | - |
+| Mbpp/221 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/229 | 0 | 0 | 0 | 0 | - | 0 | 0 | - | 0 | 0 | 0 |
+| Mbpp/234 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/239 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/251 | 0 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| Mbpp/26 | 0 | 0 | 0 | 0 | - | 0 | 0 | - | 0 | 0 | 0 |
+| Mbpp/271 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/274 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/282 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| Mbpp/285 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/297 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/301 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/345 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/349 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/353 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/364 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/368 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/371 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/374 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/380 | - | - | - | - | 1 | - | - | 0 | - | - | - |
+| Mbpp/388 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/390 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/433 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/45 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/465 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/47 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/471 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/550 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/559 | 0 | 0 | 0 | 0 | - | 0 | 0 | - | 0 | 0 | 0 |
+| Mbpp/566 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/592 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/619 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/634 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/644 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/651 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/655 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| Mbpp/678 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/687 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/693 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| Mbpp/715 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/719 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/72 | - | - | - | - | 0 | - | - | 1 | - | - | - |
+| Mbpp/722 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/748 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/755 | 0 | 0 | 0 | 0 | - | 0 | 0 | - | 0 | 0 | 0 |
+| Mbpp/759 | 0 | 0 | 0 | 0 | - | 0 | 0 | - | 0 | 0 | 0 |
+| Mbpp/760 | 1 | 1 | 1 | 1 | - | 1 | 1 | - | 1 | 1 | 1 |
+| Mbpp/782 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/792 | - | - | - | - | 1 | - | - | 0 | - | - | - |
+| Mbpp/81 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/82 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/827 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/850 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/855 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/868 | - | - | - | - | 0 | - | - | 1 | - | - | - |
+| Mbpp/876 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/883 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/888 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/90 | 0 | 1 | 1 | 1 | - | 0 | 1 | - | 1 | 1 | 0 |
+| Mbpp/907 | - | - | - | - | 0 | - | - | 0 | - | - | - |
+| Mbpp/914 | 1 | 1 | 1 | 1 | - | 1 | 0 | - | 1 | 1 | 1 |
+| Mbpp/945 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/95 | - | - | - | - | 1 | - | - | 1 | - | - | - |
+| Mbpp/960 | - | - | - | - | 0 | - | - | 0 | - | - | - |
 
 ## Diagnostics
 
-- **Universal failures** (fail in every algorithm that has data for this task): 6/30 -- HumanEval/139, Mbpp/143, Mbpp/229, Mbpp/26, Mbpp/559, Mbpp/759
-- **Oracle rate** (solved by at least one algorithm): 24/30 (80.00%) -- ceiling for any ensemble/selection strategy over the algorithms in the matrix above.
+- **Universal failures** (fail in every algorithm that has data for this task): 41/117 -- HumanEval/109, HumanEval/115, HumanEval/139, HumanEval/142, HumanEval/145, HumanEval/15, HumanEval/37, HumanEval/60, HumanEval/65, HumanEval/66, HumanEval/69, HumanEval/74, HumanEval/86, Mbpp/128, Mbpp/143, Mbpp/160, Mbpp/229, Mbpp/239, Mbpp/26, Mbpp/301, Mbpp/349, Mbpp/368, Mbpp/371, Mbpp/374, Mbpp/390, Mbpp/433, Mbpp/465, Mbpp/550, Mbpp/559, Mbpp/644, Mbpp/651, Mbpp/715, Mbpp/719, Mbpp/722, Mbpp/748, Mbpp/755, Mbpp/759, Mbpp/81, Mbpp/888, Mbpp/907, Mbpp/960
+- **Oracle rate** (solved by at least one algorithm): 76/117 (64.96%) -- ceiling for any ensemble/selection strategy over the algorithms in the matrix above.
 
