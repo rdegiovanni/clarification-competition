@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 from clarify.baselines import ClarificationAlgorithmBase
-from clarify.env import ClarificationEnvironment, TooManyQuestionException, LimitsExceededException
+from clarify.env import ClarificationEnvironment, LimitsExceededException, TooManyQuestionException
 from clarify.runtime import _validate_and_parse_evalplus_result
 
 READY_TO_CODE_KEY = "READY_TO_CODE"
@@ -63,14 +63,15 @@ class LAASeRAlgorithm(ClarificationAlgorithmBase):
                 for c in clarifications:
                     prompt += c
 
-            messages = [{
-                "role": "user",
-                "content": (
-                    READY_TO_CODE_TEMPLATE.replace("{prompt}", prompt).replace(
-                        "{entry_point}", problem["entry_point"]
-                    )
-                ),
-            }
+            messages = [
+                {
+                    "role": "user",
+                    "content": (
+                        READY_TO_CODE_TEMPLATE.replace("{prompt}", prompt).replace(
+                            "{entry_point}", problem["entry_point"]
+                        )
+                    ),
+                }
             ]
             try:
                 response = env.llm(messages)
@@ -79,7 +80,11 @@ class LAASeRAlgorithm(ClarificationAlgorithmBase):
                     return candidate
                 elif QUESTION_KEY in response:
                     _, clarifying_question = response.split(QUESTION_KEY, 1)
-                    clarifying_question = clarifying_question[1:] if clarifying_question.startswith(":") else clarifying_question
+                    clarifying_question = (
+                        clarifying_question[1:]
+                        if clarifying_question.startswith(":")
+                        else clarifying_question
+                    )
                     clarification = env.ask_human(clarifying_question)
                     num_rounds = len(clarifications)
                     clarifications += [

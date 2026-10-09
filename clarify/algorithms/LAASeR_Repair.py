@@ -22,7 +22,7 @@ import ast
 from typing import Any
 
 from clarify.baselines import ClarificationAlgorithmBase
-from clarify.env import ClarificationEnvironment, TooManyQuestionException, LimitsExceededException
+from clarify.env import ClarificationEnvironment, LimitsExceededException, TooManyQuestionException
 from clarify.runtime import _validate_and_parse_evalplus_result
 
 # generation codes
@@ -32,7 +32,7 @@ PARSING_ERROR = "SyntaxError"
 PARSING_OK = "CorrectSyntax"
 INVALID_ENTRYPOINT = "InvalidEntryPoint"
 
-#answer codes
+# answer codes
 READY_TO_CODE_KEY = "READY_TO_CODE"
 QUESTION_KEY = "QUESTION"
 
@@ -54,7 +54,6 @@ where the goal is to implement the correct python function.
 Clarification questions are just needed on prompts that are inaccurate, 
 but unnecessary questions are penalized. 
 """.strip()
-
 
 
 REPAIR_FORMAT_ERROR_TEMPLATE = """
@@ -95,7 +94,10 @@ Output Format:
 The response must be enclosed in ```python and ```
 """.strip()
 
-def _code_generation(env: ClarificationEnvironment, problem: dict[str, Any], clarifications: list[str]) -> str:
+
+def _code_generation(
+    env: ClarificationEnvironment, problem: dict[str, Any], clarifications: list[str]
+) -> str:
     gen_prompt = problem["prompt"]
     entry_point = problem["entry_point"]
     if len(clarifications) > 0:
@@ -103,47 +105,53 @@ def _code_generation(env: ClarificationEnvironment, problem: dict[str, Any], cla
         for c in clarifications:
             gen_prompt += c
 
-    messages = [{
-        "role": "user",
-        "content": (
-            READY_TO_CODE_TEMPLATE.replace("{prompt}", gen_prompt).replace(
-                "{entry_point}", entry_point
-            )
-        ),
-    }
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                READY_TO_CODE_TEMPLATE.replace("{prompt}", gen_prompt).replace(
+                    "{entry_point}", entry_point
+                )
+            ),
+        }
     ]
 
     return env.llm(messages)
 
+
 def _repair_format_error(env: ClarificationEnvironment, response: str) -> str:
 
-    messages = [{
-        "role": "user",
-        "content": (
-            REPAIR_FORMAT_ERROR_TEMPLATE.replace(
-                "{response}", response)
-        ),
-    }
+    messages = [
+        {
+            "role": "user",
+            "content": (REPAIR_FORMAT_ERROR_TEMPLATE.replace("{response}", response)),
+        }
     ]
 
-    return READY_TO_CODE_KEY+"\n"+env.llm(messages)
+    return READY_TO_CODE_KEY + "\n" + env.llm(messages)
 
-def _repair_invalid_entrypoint(env: ClarificationEnvironment, problem: dict[str, Any], response: str) -> str:
+
+def _repair_invalid_entrypoint(
+    env: ClarificationEnvironment, problem: dict[str, Any], response: str
+) -> str:
     entry_point = problem["entry_point"]
-    messages = [{
-        "role": "user",
-        "content": (
-            REPAIR_INVALID_ENDPOINT_TEMPLATE.replace(
-                "{entry_point}", entry_point).replace(
-                "{response}", response
-            )
-        ),
-    }
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                REPAIR_INVALID_ENDPOINT_TEMPLATE.replace("{entry_point}", entry_point).replace(
+                    "{response}", response
+                )
+            ),
+        }
     ]
 
-    return READY_TO_CODE_KEY+"\n"+env.llm(messages)
+    return READY_TO_CODE_KEY + "\n" + env.llm(messages)
 
-def _repair_parsing_error(env: ClarificationEnvironment, problem: dict[str, Any], clarifications: list[str], response: str) -> str:
+
+def _repair_parsing_error(
+    env: ClarificationEnvironment, problem: dict[str, Any], clarifications: list[str], response: str
+) -> str:
     gen_prompt = problem["prompt"]
     entry_point = problem["entry_point"]
     if len(clarifications) > 0:
@@ -151,18 +159,19 @@ def _repair_parsing_error(env: ClarificationEnvironment, problem: dict[str, Any]
         for c in clarifications:
             gen_prompt += c
 
-    messages = [{
-        "role": "user",
-        "content": (
-            REPAIR_PARSING_ERROR_TEMPLATE.replace("{prompt}", gen_prompt).replace(
-                "{entry_point}", entry_point).replace(
-                "{response}", response
-            )
-        ),
-    }
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                REPAIR_PARSING_ERROR_TEMPLATE.replace("{prompt}", gen_prompt)
+                .replace("{entry_point}", entry_point)
+                .replace("{response}", response)
+            ),
+        }
     ]
 
-    return READY_TO_CODE_KEY+"\n"+env.llm(messages)
+    return READY_TO_CODE_KEY + "\n" + env.llm(messages)
+
 
 def _is_solution_plausible(response: str, entry_point: str) -> (str, str):
     try:
@@ -176,8 +185,8 @@ def _is_solution_plausible(response: str, entry_point: str) -> (str, str):
         return PARSING_ERROR, str(e)
 
     if any(
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == entry_point
-            for node in ast.walk(tree)
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == entry_point
+        for node in ast.walk(tree)
     ):
         return PARSING_OK, _validate_and_parse_evalplus_result(response)
     else:
@@ -189,10 +198,8 @@ class LAASeR_Repair(ClarificationAlgorithmBase):
         clarifications = []
         candidate = ""
         try:
-            prompt = problem["prompt"]
             entry_point = problem["entry_point"]
             status = CODE_GEN
-            msg = ""
             response = ""
             while True:
                 # check generation status
@@ -203,29 +210,31 @@ class LAASeR_Repair(ClarificationAlgorithmBase):
                 elif status == INVALID_ENTRYPOINT:
                     response = _repair_invalid_entrypoint(env, problem, response)
                 elif status == PARSING_ERROR:
-                    response = _repair_parsing_error(env,problem,clarifications,response)
-                else: # status == PARSING_OK
+                    response = _repair_parsing_error(env, problem, clarifications, response)
+                else:  # status == PARSING_OK
                     # TODO: consider test generation?
                     return response
 
                 # check llm response status
                 if READY_TO_CODE_KEY in response:
-                    status, msg = _is_solution_plausible(response, entry_point)
+                    status, _ = _is_solution_plausible(response, entry_point)
                     if status == PARSING_OK:
                         candidate = _validate_and_parse_evalplus_result(response)
                         return candidate
 
                 elif QUESTION_KEY in response:
                     _, clarifying_question = response.split(QUESTION_KEY, 1)
-                    clarifying_question = clarifying_question[1:] if clarifying_question.startswith(
-                        ":") else clarifying_question
+                    clarifying_question = (
+                        clarifying_question[1:]
+                        if clarifying_question.startswith(":")
+                        else clarifying_question
+                    )
                     clarification = env.ask_human(clarifying_question)
                     num_rounds = len(clarifications)
                     clarifications += [
                         f"Question #{num_rounds + 1}:\n{clarifying_question}\nAnswer:\n{clarification}\n"
                     ]
                     status = CODE_GEN
-                    msg = ""
 
         except TooManyQuestionException:
             print("---> LAASeR: TooManyQuestionException")
@@ -235,4 +244,4 @@ class LAASeR_Repair(ClarificationAlgorithmBase):
             # The response might not contain an answer, assume a question is raised.
             print("---> LAASeR: Exception")
         finally:
-            return candidate
+            return candidate  # noqa: B012 -- intentional: always return best-so-far candidate
