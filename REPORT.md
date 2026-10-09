@@ -177,3 +177,49 @@ changing anything, demo set (30 tasks, Mbpp-only), `openai/gpt-4.1-mini`:
 **Correction**: the val-split confirmation run mentioned above was cancelled
 before completing (explicit instruction, no results produced) — superseded,
 not finished.
+
+## 2026-10-09 — Fase 1 failure analysis + first Fase 3 challenger (`LAASeR_RepairV2`): does not beat the champion
+
+**Fase 1 deliverable**: `docs/failure-analysis.md`, built from a 30-task two-class smoke set
+(seed 42, `openai/gpt-4.1-mini`), 3 runs each for the champion `LAASeR_Repair`,
+`LAASeRAlgorithm`, `LAASeR3Algorithm`, and the organizer `LLMClarification` baseline. Found and
+fixed a real bug in our own `scripts/compare_runs.py` diagnostics along the way (it was comparing
+a task id against algorithm-label dict keys instead of checking label membership, so universal-
+failure/oracle-rate numbers were silently always zero). Headline: 6/30 tasks fail for every
+algorithm we have data for (`HumanEval/139, Mbpp/143, Mbpp/229, Mbpp/26, Mbpp/559, Mbpp/759`),
+oracle rate (solved by at least one algorithm) is 24/30 (80%). Full per-task root-cause writeup,
+cross-algorithm architecture notes, and a prioritized Fase 3 hypothesis list are in that doc.
+
+**Separately, a real operational hazard found while screening the first Fase 3 challenger**: a
+single huge-int task (`HumanEval/139`) can crash an *entire* `evaluate_responses.py` batch,
+discarding every other task's result, unless `PYTHONINTMAXSTRDIGITS=0` is exported in the shell
+first — reproduced directly (crashed at 12/30 without the env var, completed cleanly at 30/30
+with it). Documented in `CLAUDE.md`'s Known SDK quirks section and `docs/failure-analysis.md`'s
+`HumanEval/139` entry; not a fix to the task itself (organizer-owned sandbox), just a workaround
+so one task can't take down a whole run's data.
+
+**Fase 3 challenger #1**: `clarify/algorithms/laaser_repair_v2.py` (`LAASeR_RepairV2`) — a repair-
+loop variant with a hard `MAX_REPAIR_ATTEMPTS` cap, a `best_parseable_code` fallback instead of
+discarding an unusable response outright, explicit `NO_KEYWORD` status handling, and an anchored
+question-detection regex. Same 30-task seed-42 smoke set, 3 runs, `openai/gpt-4.1-mini`:
+
+| Run | TDS | Pass@1 |
+|---|---|---|
+| r1 | 0.6667 | 66.67% |
+| r2 | 0.7000 | 70.00% |
+| r3 | 0.6667 | 66.67% |
+| **mean ± stdev** | **0.6778 ± 0.0192** | **67.78% ± 1.92pp** |
+
+Champion `LAASeR_Repair` on the identical 3-seed setup: TDS 0.7222 ± 0.0192, Pass@1 72.22% ±
+1.92pp (runs 0.7333/0.7000/0.7333). The gap (0.044 TDS) exceeds either group's stdev and holds
+across all 3 runs — every `LAASeR_RepairV2` run is at or below the champion's *lowest* run, and
+2 of 3 are strictly worse than every champion run. Over-asking stayed at 0.00% in both, so this
+isn't a case of trading over-asking for pass rate either way. Task-matrix diff: `RepairV2`'s most
+recent run newly loses `HumanEval/6` relative to the champion (plus the two already-known
+noise-flip tasks `HumanEval/154`/`Mbpp/755`), gains nothing back.
+
+**Verdict**: `LAASeR_RepairV2` does **not** beat the champion — real, held signal, not noise.
+Per the mission's non-negotiable rules it is **kept, not deleted**, as a documented losing
+variant (experiment #1 of the Fase-3 safety cap). Moving on to the Fase 3 hypothesis list's #1
+item next (signature/arity clarifying question for stub-less MBPP tasks — targets `Mbpp/229`/
+`Mbpp/559` directly, the single strongest multi-instance pattern found in the Fase 1 analysis).

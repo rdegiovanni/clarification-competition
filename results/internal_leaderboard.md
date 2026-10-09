@@ -6,6 +6,7 @@ Aggregates `results/history.csv` into mean +/- stdev per (algorithm, model, spli
 
 | Algorithm | clarify_py | Model | Split/dataset | n_runs | TDS | nDCG | Pass@1 | Clarification rate | Over-asking rate | Avg cost/task |
 |---|---|---|---|---|---|---|---|---|---|---|
+| LAASeR_RepairV2 | clarify/algorithms/laaser_repair_v2.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6778 +/- 0.0192 | 0.0333 +/- 0.0000 | 67.78% +/- 1.92pp | 3.33% +/- 0.00pp | 0.00% +/- 0.00pp | $0.000290 +/- 0.000015 |
 | LLMClarification | clarify/baselines/direct.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.7111 +/- 0.0192 | 0.0000 +/- 0.0000 | 71.11% +/- 1.92pp | 0.00% +/- 0.00pp | 0.00% +/- 0.00pp | $0.000415 +/- 0.000024 |
 | LAASeR3Algorithm | clarify/algorithms/lasser3.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6722 +/- 0.0640 | 1.0000 +/- 0.0000 | 70.00% +/- 6.67pp | 100.00% +/- 0.00pp | 0.00% +/- 0.00pp | $0.001750 +/- 0.000036 |
 | LAASeRAlgorithm | clarify/algorithms/LAASeRAlgorithm.py | openai/gpt-4.1-mini | demo (smoke(classes=Mbpp,HumanEval,n=30)) | 3 | 0.6333 +/- 0.0000 | 0.0333 +/- 0.0000 | 63.33% +/- 0.00pp | 3.33% +/- 0.00pp | 0.00% +/- 0.00pp | $0.000254 +/- 0.000009 |
@@ -13,38 +14,38 @@ Aggregates `results/history.csv` into mean +/- stdev per (algorithm, model, spli
 
 ## Task x algorithm matrix (most recent run per group; pass=1, fail=0, '-'=no data)
 
-| Task | LLMClarification (direct.py) | LAASeR3Algorithm (lasser3.py) | LAASeRAlgorithm (LAASeRAlgorithm.py) | LAASeR_Repair (LAASeR_Repair.py) |
-|---|---|---|---|---|
-| HumanEval/107 | 1 | 1 | 1 | 1 |
-| HumanEval/108 | 1 | 1 | 1 | 0 |
-| HumanEval/129 | 1 | 1 | 0 | 1 |
-| HumanEval/139 | 0 | 0 | 0 | 0 |
-| HumanEval/143 | 1 | 1 | 1 | 1 |
-| HumanEval/151 | 1 | 1 | 1 | 1 |
-| HumanEval/154 | 1 | 0 | 0 | 1 |
-| HumanEval/23 | 1 | 1 | 1 | 1 |
-| HumanEval/50 | 1 | 1 | 1 | 1 |
-| HumanEval/55 | 0 | 1 | 0 | 0 |
-| HumanEval/56 | 1 | 1 | 1 | 1 |
-| HumanEval/59 | 1 | 1 | 1 | 1 |
-| HumanEval/6 | 1 | 1 | 1 | 1 |
-| HumanEval/7 | 1 | 1 | 1 | 1 |
-| HumanEval/8 | 1 | 1 | 1 | 1 |
-| Mbpp/105 | 1 | 1 | 1 | 1 |
-| Mbpp/115 | 1 | 1 | 1 | 1 |
-| Mbpp/143 | 0 | 0 | 0 | 0 |
-| Mbpp/229 | 0 | 0 | 0 | 0 |
-| Mbpp/251 | 1 | 1 | 1 | 1 |
-| Mbpp/26 | 0 | 0 | 0 | 0 |
-| Mbpp/282 | 1 | 1 | 1 | 1 |
-| Mbpp/559 | 0 | 0 | 0 | 0 |
-| Mbpp/655 | 1 | 1 | 1 | 1 |
-| Mbpp/693 | 1 | 1 | 1 | 1 |
-| Mbpp/755 | 0 | 0 | 0 | 1 |
-| Mbpp/759 | 0 | 0 | 0 | 0 |
-| Mbpp/760 | 1 | 1 | 1 | 1 |
-| Mbpp/90 | 1 | 0 | 1 | 1 |
-| Mbpp/914 | 1 | 1 | 0 | 1 |
+| Task | LAASeR_RepairV2 (laaser_repair_v2.py) | LLMClarification (direct.py) | LAASeR3Algorithm (lasser3.py) | LAASeRAlgorithm (LAASeRAlgorithm.py) | LAASeR_Repair (LAASeR_Repair.py) |
+|---|---|---|---|---|---|
+| HumanEval/107 | 1 | 1 | 1 | 1 | 1 |
+| HumanEval/108 | 1 | 1 | 1 | 1 | 0 |
+| HumanEval/129 | 1 | 1 | 1 | 0 | 1 |
+| HumanEval/139 | 0 | 0 | 0 | 0 | 0 |
+| HumanEval/143 | 1 | 1 | 1 | 1 | 1 |
+| HumanEval/151 | 1 | 1 | 1 | 1 | 1 |
+| HumanEval/154 | 0 | 1 | 0 | 0 | 1 |
+| HumanEval/23 | 1 | 1 | 1 | 1 | 1 |
+| HumanEval/50 | 1 | 1 | 1 | 1 | 1 |
+| HumanEval/55 | 0 | 0 | 1 | 0 | 0 |
+| HumanEval/56 | 1 | 1 | 1 | 1 | 1 |
+| HumanEval/59 | 1 | 1 | 1 | 1 | 1 |
+| HumanEval/6 | 0 | 1 | 1 | 1 | 1 |
+| HumanEval/7 | 1 | 1 | 1 | 1 | 1 |
+| HumanEval/8 | 1 | 1 | 1 | 1 | 1 |
+| Mbpp/105 | 1 | 1 | 1 | 1 | 1 |
+| Mbpp/115 | 1 | 1 | 1 | 1 | 1 |
+| Mbpp/143 | 0 | 0 | 0 | 0 | 0 |
+| Mbpp/229 | 0 | 0 | 0 | 0 | 0 |
+| Mbpp/251 | 1 | 1 | 1 | 1 | 1 |
+| Mbpp/26 | 0 | 0 | 0 | 0 | 0 |
+| Mbpp/282 | 1 | 1 | 1 | 1 | 1 |
+| Mbpp/559 | 0 | 0 | 0 | 0 | 0 |
+| Mbpp/655 | 1 | 1 | 1 | 1 | 1 |
+| Mbpp/693 | 1 | 1 | 1 | 1 | 1 |
+| Mbpp/755 | 0 | 0 | 0 | 0 | 1 |
+| Mbpp/759 | 0 | 0 | 0 | 0 | 0 |
+| Mbpp/760 | 1 | 1 | 1 | 1 | 1 |
+| Mbpp/90 | 1 | 1 | 0 | 1 | 1 |
+| Mbpp/914 | 1 | 1 | 1 | 0 | 1 |
 
 ## Diagnostics
 

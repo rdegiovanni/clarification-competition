@@ -1,4 +1,4 @@
-# Run report — LAASeR_RepairV2 (2026-10-09T14:27:09+00:00)
+# Run report — LAASeR_RepairV2 (2026-10-09T14:20:12+00:00)
 
 ## Metadata
 
@@ -27,21 +27,13 @@ Computed with `evaluate_responses.py`'s own `_compute_output_row` / `_turn_disco
 | Pass@1 | 66.67% | raw pass rate |
 | Clarification rate | 3.33% | % tasks where ≥1 question was asked |
 | Over-asking rate | 0.00% | % well-specified tasks needlessly questioned |
-| Avg. cost / task | $0.000273 | prompt cost only, reported, no rank effect |
+| Avg. cost / task | $0.000295 | prompt cost only, reported, no rank effect |
 
 > Sampling temperature is 0.7 (non-zero), so re-running on the exact same commit/dataset will still shift these numbers by a point or two — treat small deltas below as noise, not signal. Only trust a difference that holds up across more than one run.
 
-## Vs. previous run (same algorithm/model/split/dataset)
+## Vs. previous run
 
-Previous: commit `80151da` at 2026-10-09T14:26:07+00:00
-
-| Metric | Previous | Now | Δ |
-|---|---|---|---|
-| TDS | 0.7000 | 0.6667 | ▼ -0.0333 |
-| nDCG | 0.0333 | 0.0333 | = +0.0000 |
-| Pass@1 | 0.7000 | 0.6667 | ▼ -0.0333 |
-| Clarification rate | 0.0333 | 0.0333 | = +0.0000 |
-| Over-asking rate | 0.0000 | 0.0000 | = +0.0000 |
+No earlier run recorded for this exact (algorithm, model, split, dataset) combination in `results/history.csv` — this is the first data point.
 
 ## Public leaderboard position (informational only)
 
@@ -67,8 +59,8 @@ Previous: commit `80151da` at 2026-10-09T14:26:07+00:00
 
 | Reason | Count |
 |---|---|
-| code ran but produced the wrong output | 5 |
-| code ran but failed with an unhandled error | 5 |
+| code ran but failed with an unhandled error | 6 |
+| code ran but produced the wrong output | 4 |
 
 ## Failing task IDs
 

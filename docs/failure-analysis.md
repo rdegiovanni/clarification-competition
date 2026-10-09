@@ -21,17 +21,33 @@ ask/repair logic will fix them unless the fix addresses the actual root cause be
 the simplest one-shot baseline (`LLMClarification`) and the simplest of our own algorithms
 (`LAASeRAlgorithm`, no repair loop at all) fail them identically.
 
-### `HumanEval/139` (`special_factorial`) — root cause (e): sandbox infra, not fixable by us
+### `HumanEval/139` (`special_factorial`) — root cause (e): sandbox infra, not fixable by us, with a sharp operational trap
 
-Candidate logic is correct for the stated examples. Failure is
-`SyntaxError: Exceeds the limit (4300 digits) for integer string conversion` raised **inside the
-Docker-sandboxed scoring container's own fresh Python interpreter** (`/app/temp_script.py`), which
-does not inherit the host-side `PYTHONINTMAXSTRDIGITS=0` fix we apply before invoking
-`evaluate_responses.py`. All 4 algorithms fail this identically, including the simplest possible
-one-shot baseline — strong evidence this is organizer-owned sandbox infrastructure (the test
-harness computes a factorial large enough to trip CPython 3.11+'s int-to-str conversion limit),
-not an algorithm bug. We cannot touch `clarify/runtime.py` or the Docker image, so this task is
-out of scope for any Fase 3 fix.
+Candidate logic is correct for the stated examples. The underlying cause is CPython 3.11+'s
+int-to-str conversion digit limit (4300 by default) being tripped by a factorial-sized ground
+truth value, and it bites in **two different places**, confirmed by direct observation of both:
+
+1. **Inside the Docker-sandboxed scoring container's own fresh Python interpreter**
+   (`/app/temp_script.py`) — this is what every one of our committed runs hit: a clean per-task
+   failure (`SyntaxError: Exceeds the limit...`), everything else in the batch unaffected. All 4
+   algorithms fail this task identically, including the simplest one-shot baseline — strong
+   evidence it's organizer-owned sandbox infra, not an algorithm bug.
+2. **Host-side, in `clarify/runtime.py`'s `_construct_tests` (`str(value)` on the ground-truth
+   `results` list, line ~158)**, called from `evaluate_responses.py` *before* anything is handed to
+   Docker. This path raises the exact same `ValueError`, but **unhandled, inside a
+   `ProcessPoolExecutor` worker** — it propagates all the way up and kills the entire
+   `evaluate_responses.py` invocation, discarding every other task's result in that batch, not
+   just this one. Reproduced directly: a screening run for `laaser_repair_v2.py` launched without
+   `PYTHONINTMAXSTRDIGITS=0` exported on the host crashed after only 12/30 tasks with this exact
+   traceback; the identical run with that env var set completed cleanly (task still fails
+   individually, batch survives).
+
+Practical rule going forward, for every `scripts/evaluate.sh` invocation we run ourselves:
+**always export `PYTHONINTMAXSTRDIGITS=0` in the shell before launching it.** This doesn't fix the
+task (the Docker container still fails it independently, since it doesn't inherit host env either
+way) — it only prevents one unlucky task from silently destroying an entire batch's results. Noted
+in `CLAUDE.md`'s Known SDK quirks section. We cannot touch `clarify/runtime.py` or the Docker
+image, so the task itself is out of scope for any Fase 3 fix.
 
 ### `Mbpp/26` (`check_k_elements`) — root cause (b)+(a): asked, but resolved the wrong ambiguity
 

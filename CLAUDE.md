@@ -164,6 +164,18 @@ uvx ruff format --check .
   that actually produces leaderboard numbers) defaults it to `False`. Only matters for results
   missing a `need_clarification` key; harmless for normal runs but can make the console table and
   the real score disagree slightly. Eval-script changes are organizer-only, so we just document it.
+- **A single huge-int task (e.g. `HumanEval/139`, `special_factorial`) can crash an entire
+  `evaluate_responses.py` batch, discarding every other task's result, unless
+  `PYTHONINTMAXSTRDIGITS=0` is exported in the shell before launching it.** CPython 3.11+'s
+  int-to-str conversion digit limit (4300 by default) gets tripped by `clarify/runtime.py`'s
+  `_construct_tests` calling `str(value)` on a factorial-sized ground-truth value — this happens
+  *host-side*, inside a `ProcessPoolExecutor` worker, before Docker is even involved, and the
+  exception is unhandled there, killing the whole run. Setting the env var on the host avoids that
+  crash; it does **not** fix the task itself, since the Docker sandbox container runs its own
+  fresh interpreter that doesn't inherit host env either way — that task still fails cleanly on
+  its own, which is the correct/expected per-task outcome. Full writeup, including a reproduced
+  before/after: `docs/failure-analysis.md`'s `HumanEval/139` entry. Always run our own
+  `scripts/evaluate.sh` invocations as `PYTHONINTMAXSTRDIGITS=0 scripts/evaluate.sh ...`.
 
 ## Decision log
 
