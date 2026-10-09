@@ -272,3 +272,51 @@ rather than a generic epistemic-humility warning. Moving on to the Fase 3 hypoth
 next (standalone entry-point/signature-trust wording strengthening, measured in isolation) since
 #2 (self-verification) is more expensive and #1's natural next iteration needs more thought before
 spending another experiment slot on it.
+
+## 2026-10-09 — Fase 3 challenger #3 (`LAASeR_EntryTrust`): third consecutive non-improving result
+
+**Fase 3 challenger #3**: `clarify/algorithms/laaser_entrytrust.py` (`LAASeR_EntryTrust`) —
+hypothesis #3 from `docs/failure-analysis.md`'s prioritized list. Structurally an exact copy of the
+champion `LAASeR_Repair` with exactly one isolated change: the champion's one-line entry-point
+reminder in `READY_TO_CODE_TEMPLATE` is replaced with the stronger, more explicit wording already
+used in the older `LAASeRAlgorithm.py` ("even if the task text above uses a different name for it
+... any other name fails every test regardless of whether the logic is correct"). Idea was to close
+the wording gap between our two existing algorithms and see if the stronger phrasing reduces
+entry-point-name mismatches. Same 30-task seed-42 smoke set, 3 runs, `openai/gpt-4.1-mini`:
+
+| Run | TDS | Pass@1 | Clarification rate |
+|---|---|---|---|
+| r1 | 0.6667 | 66.67% | 6.67% |
+| r2 | 0.6667 | 66.67% | 6.67% |
+| r3 | 0.6333 | 63.33% | 6.67% |
+| **mean ± stdev** | **0.6556 ± 0.0193** | **65.56% ± 1.93pp** | **6.67% ± 0.00pp** |
+
+Champion `LAASeR_Repair` on the identical 3-seed setup: TDS 0.7222 ± 0.0192, Pass@1 72.22% ±
+1.92pp, clarification rate 3.33%. The gap (0.0666 TDS) exceeds either group's stdev and holds
+across all 3 runs — every `LAASeR_EntryTrust` run is at or below the champion's *lowest* run.
+Over-asking stayed at 0.00% in both.
+
+**Task-matrix diff** (most recent run vs. champion, full matrix in
+`results/internal_leaderboard.md`): `EntryTrust` newly loses `HumanEval/129`, `HumanEval/154`,
+`Mbpp/755`, and `Mbpp/90` (all four pass under the champion) and recovers nothing. None of the
+6 universal failures this smoke sample has always had (`HumanEval/139`, `Mbpp/143`, `Mbpp/229`,
+`Mbpp/26`, `Mbpp/559`, `Mbpp/759`) are entry-point-name mismatches in the first place — this
+30-task sample simply doesn't contain any of the "ambiguous stub renames the function" `HumanEval`
+variant tasks the original wording-gap bug (documented earlier in this file, 2026-10-08) was found
+on at full `val` scale. So the stronger wording had no failure mode to fix in this sample, and its
+only measurable effect was the same kind of side-effect regression seen with challenger #2: making
+the prompt longer/more emphatic nudges the model's behavior elsewhere in ways that cost a few tasks
+without recovering any.
+
+**Verdict**: `LAASeR_EntryTrust` does **not** beat the champion. Kept, not deleted, as experiment
+#3 of the Fase-3 safety cap (3 of 25 experiments used). **This is now 3 consecutive non-improving
+experiments** (`LAASeR_RepairV2`, `LAASeR_Signature`, `LAASeR_EntryTrust`) — one short of the
+4-consecutive-non-improving stop threshold in the mission's safety cap. Takeaway: isolated wording
+tweaks to the champion's existing prompt, measured on this particular 30-task smoke sample, keep
+producing the same shape of result — no measurable fix (because the sample doesn't exercise the
+targeted failure mode) plus a small, consistent regression elsewhere from the added prompt text.
+Before spending a 4th consecutive slot on another small wording variant, the next attempt should
+either (a) target a failure mode that is actually *present* in this smoke sample (not just at full
+`val` scale), or (b) test the current best candidates (`LAASeR_RepairV2`, `LAASeR_Signature`,
+`LAASeR_EntryTrust`) against a different task sample/seed to check whether the champion's edge is
+sample-specific before concluding these variants are categorically worse.
