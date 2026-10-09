@@ -1,4 +1,4 @@
-# Run report — LAASeR_ConcreteQuestion (2026-10-09T15:34:36+00:00)
+# Run report — LAASeR_ConcreteQuestion (2026-10-09T15:10:28+00:00)
 
 ## Metadata
 
@@ -23,25 +23,17 @@ Computed with `evaluate_responses.py`'s own `_compute_output_row` / `_turn_disco
 | Metric | Value | Meaning |
 |---|---|---|
 | **TDS** (ranking metric) | 0.6987 | turn-discounted success — higher is better |
-| **nDCG** (tie-break) | 0.0667 | clarification quality — higher is better |
+| **nDCG** (tie-break) | 0.1000 | clarification quality — higher is better |
 | Pass@1 | 70.00% | raw pass rate |
 | Clarification rate | 10.00% | % tasks where ≥1 question was asked |
 | Over-asking rate | 0.00% | % well-specified tasks needlessly questioned |
-| Avg. cost / task | $0.000327 | prompt cost only, reported, no rank effect |
+| Avg. cost / task | $0.000332 | prompt cost only, reported, no rank effect |
 
 > Sampling temperature is 0.7 (non-zero), so re-running on the exact same commit/dataset will still shift these numbers by a point or two — treat small deltas below as noise, not signal. Only trust a difference that holds up across more than one run.
 
-## Vs. previous run (same algorithm/model/split/dataset)
+## Vs. previous run
 
-Previous: commit `082d0ae` at 2026-10-09T15:20:48+00:00
-
-| Metric | Previous | Now | Δ |
-|---|---|---|---|
-| TDS | 0.6653 | 0.6987 | ▲ +0.0334 |
-| nDCG | 0.1000 | 0.0667 | ▼ -0.0333 |
-| Pass@1 | 0.6667 | 0.7000 | ▲ +0.0333 |
-| Clarification rate | 0.1000 | 0.1000 | = +0.0000 |
-| Over-asking rate | 0.0000 | 0.0000 | = +0.0000 |
+No earlier run recorded for this exact (algorithm, model, split, dataset) combination in `results/history.csv` — this is the first data point.
 
 ## Public leaderboard position (informational only)
 
@@ -68,8 +60,7 @@ Previous: commit `082d0ae` at 2026-10-09T15:20:48+00:00
 | Reason | Count |
 |---|---|
 | code ran but failed with an unhandled error | 5 |
-| code ran but produced the wrong output | 3 |
-| no python code block returned | 1 |
+| code ran but produced the wrong output | 4 |
 
 ## Failing task IDs
 
@@ -77,5 +68,4 @@ HumanEval/139, HumanEval/154, HumanEval/55, Mbpp/143, Mbpp/229, Mbpp/26, Mbpp/55
 
 ## Suggested next steps
 
-- Only 66.67% of clarification questions were rated high-quality (score 3) — review question phrasing against the Criticality/Search-space/Leakage/Atomicity/Objectivity criteria in the README.
 - Mbpp pass rate (60.00%) is notably weaker than HumanEval (80.00%) — look at Mbpp failures first.

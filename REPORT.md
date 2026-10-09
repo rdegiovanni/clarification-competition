@@ -320,3 +320,68 @@ either (a) target a failure mode that is actually *present* in this smoke sample
 `val` scale), or (b) test the current best candidates (`LAASeR_RepairV2`, `LAASeR_Signature`,
 `LAASeR_EntryTrust`) against a different task sample/seed to check whether the champion's edge is
 sample-specific before concluding these variants are categorically worse.
+
+## 2026-10-09 — Fase 3 challenger four (`LAASeR_ConcreteQuestion`): fourth consecutive non-improving result, safety cap reached
+
+**Hypothesis**: rather than changing *whether* the champion asks a clarifying question (the
+generic nudge direction already tried and already backfired in challenger two), target *what* the
+question looks like on cases where the model was already going to ask anyway. Grounded directly in
+the Fase 1 failure analysis for `Mbpp/26`: the champion already asks on that task, but the question
+it asks is abstract/definitional ("what is the parameter k, and what elements should be checked
+against the tuples?"), gets a confidently-stated but wrong answer, and fails anyway. The new
+variant adds one paragraph to the existing `READY_TO_CODE_TEMPLATE` telling the model that, if it
+does ask, it should prefer a concrete input/output example over an abstract description — nothing
+else changes versus the champion `LAASeR_Repair`.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6987 | 0.1000 | 70.00% | 10.00% |
+| r2 | 0.6653 | 0.1000 | 66.67% | 10.00% |
+| r3 | 0.6987 | 0.0667 | 70.00% | 10.00% |
+| **Mean ± stdev** | **0.6876 ± 0.0193** | 0.0889 ± 0.0192 | **68.89% ± 1.92pp** | **10.00% ± 0.00pp** |
+
+Champion `LAASeR_Repair` on the identical setup: TDS 0.7222 ± 0.0192, Pass@1 72.22% ± 1.92pp,
+clarification rate 3.33%. The gap (0.0346 TDS) exceeds either group's stdev and holds across all 3
+runs.
+
+**Direct inspection of the mechanism** (per the falsification discipline established after
+challenger two): checked `clarification_history` for every task that asks a question in all 3 runs.
+The nudge is consistently reproducible — all 3 runs ask on exactly the same 3 tasks, every time:
+
+- `Mbpp/26` (the actually-targeted task): the model now reliably asks for a concrete input/output
+  example instead of an abstract definition, exactly as intended — but the simulated human's
+  answer is itself inconsistent/wrong relative to the real spec in all 3 runs, so the task still
+  fails. The content of the question changed as designed; it did not change the outcome.
+- `Mbpp/251`: **new side effect.** The champion never asks on this task (confirmed by checking the
+  champion's own clarification history for the same task across its 3 runs) and passes directly.
+  `LAASeR_ConcreteQuestion` now asks here too — the task still passes, but the extra turn applies
+  the TDS turn-discount for no benefit.
+- `Mbpp/759`: **new side effect.** Same pattern — champion never asks and still fails; this variant
+  now asks too, with no change in outcome (still fails) and an extra wasted turn.
+
+So three runs' worth of evidence converges on the same explanation challenger two already surfaced:
+a prompt change aimed at nudging clarification behavior reliably spills over into asking on tasks
+it was never meant to touch, even when the change is scoped to question *content* rather than
+*whether to ask*. The clarification rate roughly tripling (3.33% → 10.00%) is the direct, measured
+cost of that spillover; the one task it was designed to help shows no benefit at all because the
+simulated human's answer quality — not the question's phrasing — was the actual bottleneck.
+
+**Verdict**: `LAASeR_ConcreteQuestion` does **not** beat the champion. Kept, not deleted, as
+experiment four of the Fase-3 safety cap (4 of 25 experiments used). **This is now four
+consecutive non-improving experiments** (`LAASeR_RepairV2`, `LAASeR_Signature`,
+`LAASeR_EntryTrust`, `LAASeR_ConcreteQuestion`) — this meets the mission's safety-cap stop
+condition (4 consecutive non-improving). Per the mission rules, Fase 3 experimentation on direct
+prompt-wording variants of the champion should pause here for a checkpoint with the team rather
+than silently continuing to a fifth attempt. Two converging reasons stand out from four straight
+experiments: (1) every failing task in this particular 30-task smoke sample that the champion
+already gets right either depends on the simulated human answering well (not on how the question
+is worded) or is a universal failure no wording change reaches; and (2) any prompt addition that
+tries to influence clarification behavior — more assertive, more wording-specific, or more
+example-oriented — measurably increases the ask rate on tasks that didn't need it, at a real TDS
+cost, without yet producing a single clear win. The open question for the team: keep iterating on
+champion-prompt variants against this same 30-task sample, or pivot to testing current candidates
+against a different seed/sample (to rule out this specific sample being an unfavorable one for any
+wording change), or explore a structurally different approach (e.g. the `LAASeR3Algorithm`/evidence
+-gated plan already drafted) instead of further prompt-only tweaks.
