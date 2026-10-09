@@ -1,4 +1,4 @@
-# Run report — LAASeR3Algorithm (2026-10-08T17:19:59+00:00)
+# Run report — LAASeR3Algorithm (2026-10-08T12:29:23+00:00)
 
 ## Metadata
 
@@ -8,7 +8,7 @@
 | Algorithm file | clarify/algorithms/lasser3.py |
 | Model | openai/gpt-4.1-mini |
 | Temperature | 0.7 (SDK default) |
-| Split / dataset | demo (smoke(classes=Mbpp,n=30)) |
+| Split / dataset | demo (smoke(classes=Mbpp,HumanEval,n=30)) |
 | Tasks evaluated | 30 |
 | Unit tests (tests/) | PASSED |
 
@@ -22,12 +22,12 @@ Computed with `evaluate_responses.py`'s own `_compute_output_row` / `_turn_disco
 
 | Metric | Value | Meaning |
 |---|---|---|
-| **TDS** (ranking metric) | 0.4801 | turn-discounted success — higher is better |
+| **TDS** (ranking metric) | 0.6722 | turn-discounted success — higher is better |
 | **nDCG** (tie-break) | 1.0000 | clarification quality — higher is better |
-| Pass@1 | 50.00% | raw pass rate |
+| Pass@1 | 70.00% | raw pass rate |
 | Clarification rate | 100.00% | % tasks where ≥1 question was asked |
-| Over-asking rate | 0.00% | % well-specified tasks needlessly questioned |
-| Avg. cost / task | $0.001582 | prompt cost only, reported, no rank effect |
+| Over-asking rate | 100.00% | % well-specified tasks needlessly questioned |
+| Avg. cost / task | $0.001747 | prompt cost only, reported, no rank effect |
 
 > Sampling temperature is 0.7 (non-zero), so re-running on the exact same commit/dataset will still shift these numbers by a point or two — treat small deltas below as noise, not signal. Only trust a difference that holds up across more than one run.
 
@@ -41,30 +41,32 @@ No earlier run recorded for this exact (algorithm, model, split, dataset) combin
 
 | Rank | Algorithm | Team | Model | TDS |
 |---|---|---|---|---|
+| → | **LAASeR3Algorithm (this run)** | us | openai/gpt-4.1-mini | **0.6722** |
 | 1 | GatedClarification | STIL-ETS | openai/gpt-4.1-mini | 0.6410 |
 | 2 | ContractFirstClarifier | D4vidHuang | openai/gpt-4.1-mini | 0.5973 |
 | 3 | Okanagan | baseline | openai/gpt-4.1-mini | 0.5917 |
 | 4 | ClarifyGPT | baseline | openai/gpt-4.1-mini | 0.5625 |
 | 5 | LLMClarification | baseline | openai/gpt-4.1-mini | 0.4974 |
-| → | **LAASeR3Algorithm (this run)** | us | openai/gpt-4.1-mini | **0.4801** |
 
 ## Breakdown by benchmark (lowest pass-rate first — fix these first)
 
 | Benchmark | Passed | Total | Pass rate |
 |---|---|---|---|
-| Mbpp | 15 | 30 | 50.00% |
+| Mbpp | 7 | 15 | 46.67% |
+| HumanEval | 14 | 15 | 93.33% |
 
 ## Failure reasons (priority order)
 
 | Reason | Count |
 |---|---|
-| code ran but produced the wrong output | 11 |
-| code ran but failed with an unhandled error | 4 |
+| code ran but produced the wrong output | 6 |
+| code ran but failed with an unhandled error | 3 |
 
 ## Failing task IDs
 
-Mbpp/136, Mbpp/143, Mbpp/26, Mbpp/274, Mbpp/391, Mbpp/406, Mbpp/603, Mbpp/627, Mbpp/630, Mbpp/794, Mbpp/802, Mbpp/808, Mbpp/816, Mbpp/939, Mbpp/972
+HumanEval/160, Mbpp/290, Mbpp/293, Mbpp/323, Mbpp/406, Mbpp/530, Mbpp/535, Mbpp/572, Mbpp/668
 
 ## Suggested next steps
 
-- No obvious red flag from this single run; compare the TDS trend across multiple runs in `results/history.csv` before concluding anything changed.
+- Over-asking rate is 100.00% — the algorithm is questioning tasks that didn't need it, which directly costs TDS/nDCG vs. just answering.
+- Mbpp pass rate (46.67%) is notably weaker than HumanEval (93.33%) — look at Mbpp failures first.
