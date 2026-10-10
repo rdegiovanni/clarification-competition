@@ -468,6 +468,83 @@ plus giving the DRAFT step's `ASSUMPTIONS:` prompt an explicit, named prompt to 
 parameter the text never names" as its own assumption category, rather than leaving it to be found
 incidentally. Not yet attempted; next experiment slot.
 
+## 2026-10-10 — Fase 3 challenger eight (`LAASeR_GateV4`): forced signature check fixes one task cleanly, but the trigger is too broad and surfaces a deeper dataset limit
+
+**Hypothesis**: `LAASeR_GateV3`'s mechanism check on `Mbpp/229` showed a hard ceiling for
+self-report-based discovery — the model's `ASSUMPTIONS:` list never contains "there might be an
+unmentioned second parameter" for that task, because the prompt text gives no textual basis to
+generate it. `LAASeR_GateV4` (`clarify/algorithms/laaser_gate_v4.py`) stops relying on self-report
+for this specific class: a deterministic, AST-based check (`_detect_unstated_arity_risk`) runs once
+right after the first successful draft — if the prompt shows no function stub at all and the
+drafted candidate's entry point takes exactly one argument used like a sequence (`len()`, indexing,
+iteration), a fixed, pre-written, atomic question is asked directly, no LLM call and no
+`env.exec_code` call needed for the check itself.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6841 | 0.5667 | 70.00% | 66.67% |
+| r2 | 0.6455 | 0.7333 | 66.67% | 76.67% |
+| r3 | 0.6455 | 0.7667 | 66.67% | 80.00% |
+| **Mean ± stdev** | **0.6584 ± 0.0223** | **0.6889 ± 0.1071** | **67.78% ± 1.92pp** | **74.45% ± 6.94pp** |
+
+For reference: v3 TDS 0.6708 ± 0.0186 (nDCG 0.5889, clarification rate 61.11%); champion TDS
+0.7160 ± 0.0200. `LAASeR_GateV4`'s mean TDS (0.6584) is slightly *below* v3's, within the combined
+stdev of the two (not a confirmed regression, but not a confirmed win either) — nDCG and
+clarification rate both rose substantially instead. Net task-level diff (r3 vs. the champion's
+matched run): loses `Mbpp/251, 755, 90`, `HumanEval/154`, gains `HumanEval/108, 55` — net -2,
+similar to v3's -1.
+
+**Mechanism check — one clean, confirmed win, and two findings explaining why it didn't move TDS more:**
+
+1. **Confirmed win: `Mbpp/559` is fixed cleanly, every run.** The forced question ("does
+   `max_sub_array_sum` take exactly one argument, or also a second — e.g. the length?") gets the
+   *correct* answer every time ("takes exactly two arguments: the array and its length"), the model
+   correctly redrafts `def max_sub_array_sum(arr, length):`, and the `TypeError` is gone for good —
+   the task now fails on a *different*, genuine logic bug (the classic Kadane's-algorithm
+   convention of returning 0 when every element is negative, unrelated to clarification at all).
+   This is the first time any challenger has actually closed the specific gap `Mbpp/229`/`Mbpp/559`
+   were chosen to represent.
+2. **The trigger fires far more broadly than the 2 tasks it targeted.** Checking every task where
+   the forced question appears across all 3 runs: `Mbpp/115, 760, 229, 143, 755, 105, 914, 559`
+   (and `Mbpp/759` in one run) — 7-8 tasks per run, most of which (`Mbpp/115, 760, 105, 914`) were
+   *already passing* under the champion and under v3, and get asked anyway because any
+   single-sequence-argument MBPP task with no stub shown matches the structural pattern, not just
+   the specific `(arr, n)`-convention ones. Each of those adds the turn-discount penalty for zero
+   benefit — this is almost certainly why TDS didn't move up alongside nDCG/clarification rate: the
+   `Mbpp/559` win is being offset by over-triggering elsewhere. The heuristic needs to be narrower
+   before this is a net win, not just mechanistically correct where it fires on the right task.
+3. **`Mbpp/229` still fails, and the reason is more interesting than a wrong guess by the model —
+   the simulated human doesn't actually know the answer either.** Checked the raw smoke-dataset
+   record for both `Mbpp/229` and `Mbpp/559` directly: **neither has a `clarifications` or
+   `reference_prompt` field** — only `prompt`, `entry_point`, `test_cases`. Per
+   `clarify/env.py`'s `_build_human_system_prompt`, that means the simulated human's "Hidden
+   Requirements" section literally renders as `[REDACTED]` for *both* tasks — the judge has no more
+   information than our own generating model does. Since both tasks are in the same situation yet
+   one gets a correct guess and the other doesn't, the real explanation is that the judge LLM is
+   also just guessing from its own training-data familiarity with the underlying classic problem:
+   "maximum sum contiguous subarray" (Kadane's algorithm) is an extremely common tutorial/LeetCode
+   problem usually taught with an `(arr, n)` signature, so the judge's guess happens to land on the
+   real convention; "re-arrange array so negatives come before positives" is less canonical, and the
+   judge's guess lands on the same "obvious" one-argument reading our model also makes. **For these
+   specific tasks, asking doesn't resolve an information asymmetry — there isn't one.** Both sides
+   are guessing from the same kind of prior knowledge, and whether asking helps is a coin flip tied
+   to how textbook-famous the specific problem happens to be. This is a dataset-authoring gap (a
+   missing `clarifications` field for these records), not something fixable from our side of the
+   algorithm.
+
+**Verdict**: `LAASeR_GateV4` does **not** confirm a win over v3 or the champion — kept, not
+deleted, logged as experiment eight. Real, demonstrated proof that the forced-check *mechanism*
+works exactly as designed when it matters (`Mbpp/559`), but the current trigger condition (any
+stub-less single-sequence-argument function) is too broad and the resulting over-asking cost
+roughly cancels the gain on this sample. Next step, not yet attempted: narrow the trigger (e.g.
+only fire when the candidate's single-argument usage pattern specifically resembles the
+`(collection, count)` convention gap rather than any sequence usage at all) before concluding
+whether the forced-check idea nets positive. Separately, a `--split val` run of this exact
+candidate was launched independently by the team outside this session to get a first anti-overfitting
+read; its result should be folded into this entry or a follow-up once available.
+
 ## 2026-10-10 — Fase 3 challenger seven (`LAASeR_GateV3`): multi-hypothesis discovery closes more of the gap, still short of the champion
 
 **Hypothesis**: re-reading the full CONTRA methodology (not just the abstract) at the user's
