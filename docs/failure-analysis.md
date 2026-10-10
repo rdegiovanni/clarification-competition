@@ -180,3 +180,50 @@ nothing to run the candidate against) — not a general correctness guarantee.
    still resolved to the wrong semantic, consider whether the clarifying question itself should
    request a concrete input/output example rather than an abstract definition — only one instance
    observed so far, worth watching for a second instance before investing in a dedicated fix.
+
+## 2026-10-10 refresh — statistical taxonomy across champion + both Gate challengers (315 rows)
+
+Built `scripts/analyze_failures.py` (dev tooling) to classify every failing row across the smoke-42
+runs of `LAASeR_Repair` (champion, 4 runs), `LAASeR_Gate` (v1, 3 runs), and `LAASeR_GateV2` (3 runs)
+by root-cause signature read from `test_result`, cross-tabbed against whether a clarification was
+asked. Aggregate (104 failures across 315 rows, 67.0% overall pass rate):
+
+| Category | Count | Unique tasks | Asked a question |
+|---|---|---|---|
+| code ran, wrong output (no exception) | 55 | 18 | 30/55 |
+| signature/arity mismatch (TypeError, wrong arg count) | 22 | 4 | 9/22 |
+| runtime error: ValueError | 11 | 2 | 3/11 |
+| infra: sandbox digit limit (unfixable) | 9 | 1 | 4/9 |
+| runtime error: AttributeError | 6 | 1 | 3/6 |
+| runtime error: IndexError | 1 | 1 | 0/1 |
+
+Two findings worth acting on:
+
+1. **The signature/arity bug class is bigger than the 2 tasks we'd previously confirmed.** The
+   champion's wider 4-run sample surfaces it on `Mbpp/617` and `Mbpp/888` too, not just `Mbpp/229`/
+   `Mbpp/559` — same `(arr, n)`-style redundant-length-argument convention, 4 distinct tasks now
+   confirmed, 22 total occurrences. It is also the category where `LAASeR_GateV2`'s single-hypothesis
+   bottleneck shows up most clearly in the numbers: it asks about this class only 2/6 times vs. v1's
+   6/6 — rarer, not more frequent, because v2 only tests the *one* assumption its DRAFT step
+   self-selects, and that selection apparently picks something else more often than not.
+2. **`Mbpp/90` is a real regression introduced by our own prompt change, not an inherent ambiguity.**
+   The champion passes it in every run (`def len_log(words): return max(len(word) for word in
+   words) if words else 0` — correctly guesses the hidden test passes an already-tokenized list of
+   words). Both `LAASeR_Gate` and `LAASeR_GateV2` fail it in 100% of their runs (6/6 combined), every
+   time with the *same* bug: the candidate assumes `s` is a raw string and calls `s.split()`,
+   raising `AttributeError: 'list' object has no attribute 'split'`. The task prompt
+   ("find the length of the longest word") gives no signal either way about whether the input is a
+   sentence-string or a pre-split list — this is the exact same unnamed-parameter-*type* ambiguity
+   as the `(arr, n)` unnamed-parameter-*count* class above, just never named as its own category.
+   The clean 0%-vs-100% split (not a mix) across runs is the same side-effect pattern already
+   documented for challengers #2–#4 in `REPORT.md`: adding instruction text to the generation prompt
+   (here, our `ASSUMPTIONS:` section) measurably shifts behavior on tasks it was never aimed at.
+
+**Priority update for the next Fase 3 attempt**: the single highest-leverage, best-evidenced fix is
+no longer a new wording tweak — it's fixing the *discovery* bottleneck itself. `LAASeR_GateV2`'s
+execution-verification mechanism (confirmed working: cuts over-asking by more than half, nDCG stays
+high) is bottlenecked by testing only the one assumption its DRAFT step happens to self-select.
+Testing *several* self-reported assumptions per task (closer to the full CONTRA pipeline's
+"broad discovery → qualify many in parallel → select one" rather than our "pick one, then verify
+it" shortcut) should recover more of the signature/arity class without giving up the over-asking
+win, since each candidate still has to pass the same execution check before it can be asked.
