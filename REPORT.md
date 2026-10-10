@@ -468,6 +468,77 @@ plus giving the DRAFT step's `ASSUMPTIONS:` prompt an explicit, named prompt to 
 parameter the text never names" as its own assumption category, rather than leaving it to be found
 incidentally. Not yet attempted; next experiment slot.
 
+## 2026-10-10 — Fase 3 challenger seven (`LAASeR_GateV3`): multi-hypothesis discovery closes more of the gap, still short of the champion
+
+**Hypothesis**: re-reading the full CONTRA methodology (not just the abstract) at the user's
+request confirmed `LAASeR_GateV2` was a materially simplified version of the paper's actual
+pipeline — the paper discovers *many* candidate questions and qualifies all of them in parallel
+before selecting one, while v2 collapsed this to "the DRAFT step's one self-picked assumption →
+verify it." `scripts/analyze_failures.py`'s taxonomy confirmed this costs recall concretely: v2
+asked about the signature/arity bug class only 2/6 times vs. v1's 6/6. `LAASeR_GateV3`
+(`clarify/algorithms/laaser_gate_v3.py`) closes that gap: the ALT+PROBE call may return up to 3
+candidate hypotheses (one per uncertain assumption, most-to-least-uncertain order) in a single
+response, all qualified in one combined `env.exec_code` probe script, and the question asked
+belongs to the first candidate (in listed order) with a confirmed divergence — same cost shape as
+v2 (one extra LLM call, one extra `exec_code` call per round), more recall.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6494 | 0.6000 | 66.67% | 63.33% |
+| r2 | 0.6801 | 0.5667 | 70.00% | 60.00% |
+| r3 | 0.6828 | 0.6000 | 70.00% | 60.00% |
+| **Mean ± stdev** | **0.6708 ± 0.0186** | **0.5889 ± 0.0192** | **68.89% ± 1.92pp** | **61.11% ± 1.92pp** |
+
+A clear, monotonic progression across all three structural iterations on this smoke sample:
+
+| | TDS | nDCG | Clarification rate |
+|---|---|---|---|
+| Champion `LAASeR_Repair` (4 runs) | 0.7160 ± 0.0200 | 0.0500 ± 0.0334 | 5.00% ± 3.34pp |
+| v1 `LAASeR_Gate` | 0.6174 ± 0.0320 | 0.9889 ± 0.0192 | 100.00% ± 0.00pp |
+| v2 `LAASeR_GateV2` | 0.6432 ± 0.0344 | 0.4333 ± 0.0882 | 43.33% ± 8.82pp |
+| v3 `LAASeR_GateV3` | **0.6708 ± 0.0186** | 0.5889 ± 0.0192 | 61.11% ± 1.92pp |
+
+`LAASeR_GateV3` does **not** beat the champion — the gap (0.0452) still exceeds the combined
+stdev and holds across all 3 runs — but it is the closest any Gate variant has gotten, and the
+tightest inter-run stdev of the three (0.0186, vs. v2's 0.0344), suggesting the multi-hypothesis
+mechanism is also more *stable* than testing a single self-picked assumption.
+
+**Mechanism check** (`scripts/analyze_failures.py` across all 3 runs, 90 rows): the signature/arity
+class is asked about 3/6 times now, up from v2's 2/6 (still short of v1's 6/6) — multi-hypothesis
+testing does recover some of the lost recall, but not all of it, because of a deeper issue the user
+surfaced directly: for `Mbpp/229` specifically (prompt: *"Write a function to re-arrange the
+elements of the given array so that all negative elements appear before positive ones"*, no stub
+shown), checking the model's drafted candidate confirms it is a single-argument function
+(`def re_arrange_array(arr):`) and `Mbpp/229` **still never asks in any of the 3 runs** — not
+because the hypothesis loses out to competing candidates, but because the model's own
+self-reported `ASSUMPTIONS:` list apparently never contains "there might be an unmentioned second
+parameter" as a candidate for this task at all. **This is a real, structural ceiling on the whole
+self-report-based discovery approach**, not a tuning problem: the task text gives no textual signal
+whatsoever that a second parameter exists (confirmed directly against `data/mbpp/mbpp_original.jsonl`
+— the hidden test calls `re_arrange_array([-1, 2, -3, 4, 5, 6, -7, 8, 9], 9)`, an MBPP convention
+never implied by the prose). No amount of asking the model to introspect harder will produce an
+assumption it has no textual basis to generate in the first place.
+
+**Net task-level diff** (r3 vs. the champion's matched run): loses `Mbpp/755, Mbpp/90,
+HumanEval/154`, gains `HumanEval/108, HumanEval/55` — net -1, the smallest gap yet (v1: -4, v2: -3).
+`Mbpp/90` (the regression documented in the 2026-10-10 failure-analysis refresh) is still broken in
+2 of 3 runs, now with a *mix* of `AttributeError` and `TypeError`, and is now asked about in all 3
+runs without being fixed — asking happens, but not about the right thing, same pattern as `Mbpp/26`
+and `Mbpp/559` below.
+
+**Verdict**: `LAASeR_GateV3` does **not** beat the champion — kept, not deleted, logged as
+experiment seven. Real, monotonic progress across all three structural iterations (TDS 0.6174 →
+0.6432 → 0.6708), and the tightest variance yet. The next lever is not another tuning pass on
+self-report-based discovery — the `Mbpp/229` mechanism check shows that approach has a hard ceiling
+when the ambiguity leaves literally no textual trace. The proposed next step (not yet implemented):
+a **forced, structural signature-candidate** — generated unconditionally whenever a task shows no
+stub and operates on a sequence type, independent of whether the model's own self-report mentions
+it, verified by the same execution check as every other candidate, and kept as its own atomic
+question (explicitly *not* appended to any other question asked, to protect the validated
+ATOMICITY win from challenger #5/#6).
+
 ## 2026-10-10 — Fase 3 challenger six (`LAASeR_GateV2`): execution-verified gate cuts over-asking by more than half, still short of the champion
 
 **Hypothesis**: before designing this challenger, searched for related published work (per the
