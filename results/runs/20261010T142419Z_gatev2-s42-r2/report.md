@@ -1,4 +1,4 @@
-# Run report — LAASeR_GateV2 (2026-10-10T14:27:36+00:00)
+# Run report — LAASeR_GateV2 (2026-10-10T14:25:57+00:00)
 
 ## Metadata
 
@@ -22,25 +22,25 @@ Computed with `evaluate_responses.py`'s own `_compute_output_row` / `_turn_disco
 
 | Metric | Value | Meaning |
 |---|---|---|
-| **TDS** (ranking metric) | 0.6254 | turn-discounted success — higher is better |
-| **nDCG** (tie-break) | 0.3333 | clarification quality — higher is better |
-| Pass@1 | 63.33% | raw pass rate |
-| Clarification rate | 33.33% | % tasks where ≥1 question was asked |
+| **TDS** (ranking metric) | 0.6828 | turn-discounted success — higher is better |
+| **nDCG** (tie-break) | 0.5000 | clarification quality — higher is better |
+| Pass@1 | 70.00% | raw pass rate |
+| Clarification rate | 50.00% | % tasks where ≥1 question was asked |
 | Over-asking rate | 0.00% | % well-specified tasks needlessly questioned |
-| Avg. cost / task | $0.001271 | prompt cost only, reported, no rank effect |
+| Avg. cost / task | $0.001489 | prompt cost only, reported, no rank effect |
 
 > Sampling temperature is 0.7 (non-zero), so re-running on the exact same commit/dataset will still shift these numbers by a point or two — treat small deltas below as noise, not signal. Only trust a difference that holds up across more than one run.
 
 ## Vs. previous run (same algorithm/model/split/dataset)
 
-Previous: commit `ea18dc3` at 2026-10-10T14:25:57+00:00
+Previous: commit `ea18dc3` at 2026-10-10T14:24:00+00:00
 
 | Metric | Previous | Now | Δ |
 |---|---|---|---|
-| TDS | 0.6828 | 0.6254 | ▼ -0.0574 |
-| nDCG | 0.5000 | 0.3333 | ▼ -0.1667 |
-| Pass@1 | 0.7000 | 0.6333 | ▼ -0.0667 |
-| Clarification rate | 0.5000 | 0.3333 | ▼ -0.1667 |
+| TDS | 0.6214 | 0.6828 | ▲ +0.0614 |
+| nDCG | 0.4667 | 0.5000 | ▲ +0.0333 |
+| Pass@1 | 0.6333 | 0.7000 | ▲ +0.0667 |
+| Clarification rate | 0.4667 | 0.5000 | ▲ +0.0333 |
 | Over-asking rate | 0.0000 | 0.0000 | = +0.0000 |
 
 ## Public leaderboard position (informational only)
@@ -49,8 +49,8 @@ Previous: commit `ea18dc3` at 2026-10-10T14:25:57+00:00
 
 | Rank | Algorithm | Team | Model | TDS |
 |---|---|---|---|---|
+| → | **LAASeR_GateV2 (this run)** | us | openai/gpt-4.1-mini | **0.6828** |
 | 1 | GatedClarification | STIL-ETS | openai/gpt-4.1-mini | 0.6410 |
-| → | **LAASeR_GateV2 (this run)** | us | openai/gpt-4.1-mini | **0.6254** |
 | 2 | ContractFirstClarifier | D4vidHuang | openai/gpt-4.1-mini | 0.5973 |
 | 3 | Okanagan | baseline | openai/gpt-4.1-mini | 0.5917 |
 | 4 | ClarifyGPT | baseline | openai/gpt-4.1-mini | 0.5625 |
@@ -60,20 +60,20 @@ Previous: commit `ea18dc3` at 2026-10-10T14:25:57+00:00
 
 | Benchmark | Passed | Total | Pass rate |
 |---|---|---|---|
-| Mbpp | 7 | 15 | 46.67% |
-| HumanEval | 12 | 15 | 80.00% |
+| Mbpp | 8 | 15 | 53.33% |
+| HumanEval | 13 | 15 | 86.67% |
 
 ## Failure reasons (priority order)
 
 | Reason | Count |
 |---|---|
-| code ran but produced the wrong output | 6 |
 | code ran but failed with an unhandled error | 5 |
+| code ran but produced the wrong output | 4 |
 
 ## Failing task IDs
 
-HumanEval/139, HumanEval/154, HumanEval/55, Mbpp/143, Mbpp/229, Mbpp/251, Mbpp/26, Mbpp/559, Mbpp/755, Mbpp/759, Mbpp/90
+HumanEval/139, HumanEval/154, Mbpp/143, Mbpp/229, Mbpp/26, Mbpp/559, Mbpp/755, Mbpp/759, Mbpp/90
 
 ## Suggested next steps
 
-- Mbpp pass rate (46.67%) is notably weaker than HumanEval (80.00%) — look at Mbpp failures first.
+- Mbpp pass rate (53.33%) is notably weaker than HumanEval (86.67%) — look at Mbpp failures first.

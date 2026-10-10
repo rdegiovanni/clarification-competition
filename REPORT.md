@@ -467,3 +467,86 @@ would make the candidate behave *differently* on a case the task text could plau
 plus giving the DRAFT step's `ASSUMPTIONS:` prompt an explicit, named prompt to consider "a
 parameter the text never names" as its own assumption category, rather than leaving it to be found
 incidentally. Not yet attempted; next experiment slot.
+
+## 2026-10-10 — Fase 3 challenger six (`LAASeR_GateV2`): execution-verified gate cuts over-asking by more than half, still short of the champion
+
+**Hypothesis**: before designing this challenger, searched for related published work (per the
+team's request) and found **CONTRA** ("Discovering and Qualifying Behavior-Changing Questions for
+Selective Clarification in LLM Code Generation", arXiv:2610.01769) — its stated premise is almost a
+diagnosis of challenger #5's failure: rather than trust an LLM's own "this assumption is critical"
+self-report, generate two candidates under two plausible answers and only keep a question if they
+**actually diverge in behavior** on shared inputs. `LAASeR_GateV2`
+(`clarify/algorithms/laaser_gate_v2.py`) keeps v1's validated atomic/concrete question template but
+replaces its self-judged GATE call with this execution-grounded check: the model proposes one
+alternative candidate for the single assumption it is least sure about, plus a handful of concrete
+probe inputs and the question it would ask if confirmed; both candidates are then actually run via
+`env.exec_code` (new technique for our own algorithms — base64-embedded source, separate namespaces,
+per-candidate and per-call `try/except` so a broken alternative can't take down the whole probe) and
+the question is only asked if at least one input shows a real, reproducible output difference. The
+DRAFT prompt also now names "a parameter the task text never mentions" as its own assumption
+category, targeting the still-open `Mbpp/229`/`Mbpp/559` signature gap.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6214 | 0.4667 | 63.33% | 46.67% |
+| r2 | 0.6828 | 0.5000 | 70.00% | 50.00% |
+| r3 | 0.6254 | 0.3333 | 63.33% | 33.33% |
+| **Mean ± stdev** | **0.6432 ± 0.0344** | **0.4333 ± 0.0882** | **65.55% ± 3.85pp** | **43.33% ± 8.82pp** |
+
+For reference: `LAASeR_Gate` (v1, 3 runs) TDS 0.6174 ± 0.0320, nDCG 0.9889 ± 0.0192, clarification
+rate 100.00% ± 0.00pp. Champion `LAASeR_Repair`, now with a 4th matching historical run folded into
+the same group by `scripts/compare_runs.py` (an earlier screening run from before the `-s42-r*`
+labeling convention, same dataset tag): TDS 0.7160 ± 0.0200, nDCG 0.0500 ± 0.0334, clarification
+rate 5.00% ± 3.34pp. `LAASeR_GateV2` does **not** beat the champion — all 3 of its runs sit below
+even the champion's single lowest individual run (0.6974) — but it is a real improvement over v1 on
+every axis that matters for the TDS/over-asking problem: TDS +0.026, and most importantly
+clarification rate **100.00% → 43.33%**, more than halved, while nDCG (0.4333) stays far above the
+champion's 0.0500.
+
+**Mechanism check**, same discipline as every prior challenger — `clarification_history` for
+`Mbpp/26, 229, 559, 759, 143` across all 3 runs:
+
+- `Mbpp/26`, `Mbpp/229`, `Mbpp/143`, `Mbpp/759`: **never asked in any of the 3 runs** — the
+  execution check consistently found no confirmed divergence (or the ALT+PROBE call itself said
+  `DONE`) and correctly suppressed the question. This is the mechanism working as designed: these
+  are exactly the kind of "the model feels a little unsure but it wouldn't change the output on the
+  inputs it tried" cases v1's self-judged gate couldn't tell apart from a real ambiguity. The cost
+  is that these 4 tasks still fail — correctly not asking doesn't make the underlying ambiguity
+  resolve itself, and 3 of the 4 (`Mbpp/26`, `143`, `759`) have no stated examples in the prompt
+  text for *any* mechanism (execution-grounded or not) to probe against; only asking (and getting a
+  good answer) was ever going to fix them.
+- `Mbpp/559`: asked in **all 3 runs**, every time about the empty-list edge case (not the actual
+  missing-parameter root cause from `docs/failure-analysis.md`), confirmed by a genuine divergence
+  each time, and still fails every time — same pattern as challenger #5: the execution check is
+  working exactly as intended (it only asked because the two candidates really did disagree on
+  `max_sub_array_sum([])`), it just isn't the question that would have fixed this specific task.
+- **Signature/arity hypothesis: still unsolved.** `Mbpp/229` never asked in any run, despite the
+  DRAFT prompt now explicitly naming "a parameter the text never mentions" as an assumption
+  category. The self-reported assumptions apparently still don't surface it as a candidate often
+  enough for the ALT+PROBE step to ever pick it, so the execution check never gets a chance to test
+  it either — the blind spot is one step upstream of where this challenger intervenes.
+
+**Net task-level diff** (r3 vs. the champion's matched smoke-42 run): `LAASeR_GateV2` newly loses
+`Mbpp/251, Mbpp/755, Mbpp/90, HumanEval/154` (all four pass under the champion) and newly gains
+`HumanEval/108` — net -3, smaller than v1's net -4 but still a net loss on this sample.
+
+**Cost note**: `env.exec_code` calls are not metered in `prompt_cost`/`clarification_cost` (confirmed
+by reading `clarify/env.py`), so the reported `avg_cost_usd` for this version undercounts its real
+compute cost relative to the champion and even relative to v1 — treat the dollar figures in
+`results/internal_leaderboard.md` as LLM-token cost only, not total compute.
+
+**Verdict**: `LAASeR_GateV2` does **not** beat the champion — kept, not deleted, logged as experiment
+six. Real, measured progress on the exact mechanism the team flagged as broken in challenger #5
+(over-asking cut by more than half, nDCG preserved far above the champion's), but the gap to the
+champion (0.073 TDS) still exceeds the combined stdev and holds across all 3 runs, and the
+signature/arity hypothesis the user specifically asked about remains open — it needs an intervention
+further upstream (making the DRAFT step's self-report actually surface "extra parameter" as a
+candidate more reliably) rather than a better verification step once it's already there. Natural
+next directions, not yet attempted: (a) tighten the DIVERGE check further by requiring the probe
+inputs to look like something the hidden tests would plausibly cover rather than any input that
+happens to disagree, since several of the task-level regressions are plausibly "real but
+hidden-test-irrelevant" divergences; (b) attack the signature gap at the DRAFT step directly (e.g.
+an explicit AST-based self-check of the drafted candidate's own parameter count against the task
+text, rather than relying on the model's free-text self-report to mention it).
