@@ -572,7 +572,8 @@ class LAASeR_GateV7(ClarificationAlgorithmBase):
                     new_status, payload = _parse_draft(response, entry_point)
                     if new_status == PARSING_OK:
                         code, assumptions, examples = payload
-                        candidate = _self_check_and_repair(env, entry_point, code, examples)
+                        candidate = code  # commit the valid draft before the riskier self-check
+                        candidate = _self_check_and_repair(env, entry_point, candidate, examples)
                         status = ALT_PROBE
                     else:
                         status = new_status

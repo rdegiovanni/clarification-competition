@@ -53,11 +53,13 @@ class _FakeEnv:
         llm_exception=None,
         ask_human_exception=None,
         exec_code_responses=None,
+        exec_code_exception=None,
     ):
         self._llm_responses = list(llm_responses or [])
         self._llm_exception = llm_exception
         self._ask_human_exception = ask_human_exception
         self._exec_code_responses = list(exec_code_responses or [])
+        self._exec_code_exception = exec_code_exception
         self.seen_prompts: list[str] = []
         self.exec_code_calls = 0
         self.ask_human_calls: list[str] = []
@@ -76,6 +78,8 @@ class _FakeEnv:
 
     def exec_code(self, script):
         self.exec_code_calls += 1
+        if self._exec_code_exception is not None:
+            raise self._exec_code_exception
         return self._exec_code_responses.pop(0)
 
 
@@ -127,6 +131,16 @@ class LAASeRGateV7Test(unittest.TestCase):
         result = LAASeR_GateV7().run(env, PROBLEM)
         self.assertIn("def add", result)
         self.assertEqual(env.ask_human_calls, [])
+
+    def test_exception_during_self_check_does_not_discard_a_valid_candidate(self):
+        # A transient sandbox/infra failure inside the self-check step must not throw away
+        # the already-valid, already-parsed candidate drafted just before it.
+        env = _FakeEnv(
+            llm_responses=[PASSING_EXAMPLES_DRAFT],
+            exec_code_exception=RuntimeError("sandbox infra failure"),
+        )
+        result = LAASeR_GateV7().run(env, PROBLEM)
+        self.assertIn("def add", result)
 
     def test_malformed_examples_falls_back_to_no_self_check(self):
         env = _FakeEnv(llm_responses=[MALFORMED_EXAMPLES_DRAFT, "DONE"])
