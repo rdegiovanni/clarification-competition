@@ -722,3 +722,75 @@ this whole Fase 3 line, for the project's standing lesson that smoke-sample scre
 hide how a change behaves at the scale that actually matters, and it hardens the next-step priority
 named above — narrow the trigger condition — into a precondition, not an optimization, before any
 further use of the forced-check idea.
+
+## 2026-10-10/11 — A narrower trigger was proposed and withdrawn before measurement (overfitting risk)
+
+A follow-up candidate, `clarify/algorithms/laaser_gate_v5.py`, added one condition to v4's forced
+check: require the literal word "array" in the prompt, on top of v4's existing no-stub +
+single-sequence-argument check. Checking the real hidden tests behind every task v4's broader
+trigger fired on in the smoke-42 runs showed "array" cleanly separates the true positives
+(`Mbpp/229`, `559`, `760`, all genuinely needing a second argument) from the false positives
+(`Mbpp/105`, `115`, `143`, `759`, `914`, all genuinely single-argument) in that specific data.
+
+**The user flagged, correctly, that this is overfitting** even though it names no task ID: the
+keyword was derived by looking at outcomes on exactly 8 smoke-sample tasks and picking whatever
+separated them, which is the same failure mode as tuning on a validation set — and we had just
+watched an even more generic-looking heuristic (v4's) go from 0.00% to 73.06% over-asking between
+smoke and val. There is no val-scale evidence "array" generalizes, only a retrospective fit to 8
+examples. Written up here for the record per the mission's "report failures too" rule; the file is
+kept on disk, uncommitted and unmeasured, explicitly not to be used without the team's sign-off.
+Broader conclusion: the forced-structural-trigger line (challengers #8 and this one) hit a dead
+end given the information available to us -- `Mbpp/229`-class ambiguity has no textual signal to
+key a trigger off safely, and any attempt to hand-craft one risks re-deriving the smoke sample's
+own idiosyncrasies rather than a real pattern.
+
+## 2026-10-10/11 — Fase 3 challenger nine (`LAASeR_GateV6`): diverse-sampling discovery, does not clearly beat v3 despite ~2x the cost
+
+**Hypothesis**: the team proposed addressing `LAASeR_GateV3`'s single-draft discovery bottleneck
+with "three agents at very different temperatures, union their assumptions, a fourth implements."
+Checked `clarify/env.py`/`clarify/llm.py` directly: `env.llm` fixes temperature at environment
+construction (set once from the competition's `--temperature` flag) with no per-call override, so
+literally-different-temperatures-per-call isn't implementable through the SDK. The underlying
+mechanism (self-consistency / diverse sampling to improve recall) still is, since repeated calls
+at the harness's own non-zero temperature already produce materially different samples.
+`LAASeR_GateV6` (`clarify/algorithms/laaser_gate_v6.py`) makes three independent DRAFT calls per
+round (each with its own small repair loop), unions their `ASSUMPTIONS:` lists, and feeds that
+richer pool into v3's unchanged execution-verified multi-hypothesis ALT_PROBE mechanism. The first
+draft that parses successfully is the round's base candidate; an unparseable draft is dropped
+rather than failing the round.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6521 | 0.5000 | 66.67% | 53.33% |
+| r2 | 0.7174 | 0.4000 | 73.33% | 53.33% |
+| r3 | 0.6521 | 0.4333 | 66.67% | 53.33% |
+| **Mean ± stdev** | **0.6739 ± 0.0377** | **0.4444 ± 0.0509** | **68.89% ± 3.85pp** | **53.33% ± 0.00pp** |
+
+A separate single run on a *different* 60-task smoke sample (not the fixed smoke-42) had shown a
+striking TDS of 0.7288 — the smoke-42 confirmation shows that number does not hold up as a
+reliable estimate; it was one favorable sample, not a signal. On the comparable smoke-42 measure,
+v6's mean (0.6739 ± 0.0377) is statistically indistinguishable from v3's (0.6708 ± 0.0186) — the
+gap is smaller than v6's own stdev — despite v6 costing roughly 2x v3's LLM calls (three DRAFT
+calls instead of one). The extra discovery diversity is not currently paying for itself.
+
+**Mechanism check** (`Mbpp/26, 229, 559, 759, 143`, all 3 runs): `Mbpp/229` is asked about in 1 of
+3 runs now (0 of 3 under v3) — some real recall improvement from the diverse sampling, as
+hypothesized. `Mbpp/26` is still never asked in any run (0/3, same as every prior challenger).
+None of the 5 ever actually passes regardless of whether asked, for the same reasons documented
+under challengers #6-#8 (wrong sub-question, or the simulated judge's own guess being wrong when
+no `clarifications` field exists). Net task-level diff (r3 vs. the champion's matched run): loses
+`Mbpp/755, 90`, `HumanEval/154`, gains `HumanEval/108` — net -2, in the same range as v3 (-1) and
+v4 (-2).
+
+**Verdict**: `LAASeR_GateV6` does **not** confirm a win over `LAASeR_GateV3` — kept, not deleted,
+logged as experiment nine. The diverse-sampling mechanism does what it was designed to do (modest,
+real recall improvement on the one case checked), but at roughly double the cost for a result
+statistically indistinguishable from the cheaper v3 on this sample. Given the champion `LAASeR_Repair`
+(0.7160 ± 0.0200) still sits above every Gate-family variant tried so far (v1 through v6) on this
+same smoke-42 measure, and no single variant has yet produced a confirmed, held win, the next
+sensible step is to validate whichever Gate variant looks best (v3, the cheapest of the group with
+a comparable mean) against a second seed and `--split val` before investing in further Gate-family
+iterations — per the standing lesson from `LAASeR_Repair`'s own smoke-vs-val reversal, no further
+smoke-only tuning should be trusted without that check.
