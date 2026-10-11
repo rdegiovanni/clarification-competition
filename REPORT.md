@@ -723,6 +723,62 @@ hide how a change behaves at the scale that actually matters, and it hardens the
 named above — narrow the trigger condition — into a precondition, not an optimization, before any
 further use of the forced-check idea.
 
+## 2026-10-11 — Fase 3 challenger eleven (`LAASeR_GateV7`): universal self-check generalizes correctly, but introduces real instability
+
+**Hypothesis**: "code ran but produced the wrong output" is the single largest failure category
+across every challenger measured (55/104 in `scripts/analyze_failures.py`'s taxonomy). An earlier
+draft of this idea parsed literal doctests out of the task prompt; the team correctly flagged it
+as too narrow (most MBPP prompts have none). `LAASeR_GateV7` generalizes it: the DRAFT step states
+2-3 concrete `(arguments, expected_output)` pairs it believes its OWN implementation must satisfy,
+for every task regardless of whether the prompt gives examples. The candidate is run against its
+own stated examples via `env.exec_code`; a mismatch triggers one targeted repair call, never a
+clarifying question. Whatever results proceeds unchanged into `LAASeR_GateV3`'s ALT_PROBE step.
+
+**A real implementation bug was found and fixed before trusting any measurement**: `candidate` was
+only assigned the self-check step's *result*, so any exception raised inside it (confirmed:
+transient `env.exec_code` failures happen in practice) discarded the already-valid, already-parsed
+draft and fell through to `""`. First screening pair (pre-fix) showed TDS 0.7148 then 0.5148 — the
+second run's failures were HumanEval/50, 56, and others with a literally empty `prompt_result`
+despite nothing wrong with the task. Root-caused directly, fixed by committing `candidate = code`
+before the risky call, with a dedicated regression test (confirmed red before, green after).
+
+**3-run result, post-fix** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6508 | 0.7000 | 66.67% | 70.00% |
+| r2 | 0.5547 | 0.5667 | 56.67% | 60.00% |
+| r3 | 0.6481 | 0.7000 | 66.67% | 70.00% |
+| **Mean ± stdev** | **0.6179 ± 0.0547** | **0.6556 ± 0.0770** | **63.34% ± 5.77pp** | **66.67% ± 5.77pp** |
+
+`LAASeR_GateV7` does **not** beat `LAASeR_GateV3` (0.6708 ± 0.0186) even after the fix — and its
+inter-run stdev (0.0547) is nearly 3x v3's, a real stability regression, not just a lower mean.
+
+**Mechanism check — the fix was necessary but not sufficient; a second, more fundamental risk was
+found in the still-standing r2 (post-fix) run**: `Mbpp/115` (`empty_dit`, "check whether all
+dictionaries in a list are empty") failed with the candidate defining
+`def empty_dit(*dicts):` — a variadic signature — instead of the correct
+`def empty_dit(lst):` seen in r1 and r3 of this same experiment (and in every other challenger's
+runs). The most likely mechanism: the model's own stated `EXAMPLES:` entry packed its arguments
+inconsistently with its own function signature (e.g. thinking of "three separate dicts" rather
+than "one list containing three dicts"), the self-check probe then calls the *correct* original
+candidate with the *wrong* arity, reports a spurious mismatch, and the resulting repair "fixes" an
+already-correct implementation to match the self-check's own miscounted expectation. This is a
+real, structural risk of the design that review alone caught in this one instance but likely
+explains some of the extra variance — the self-check can occasionally corrupt correct code when
+the model's own bookkeeping of "how my examples should be called" disagrees with its own function
+signature, independent of whether the original implementation was right.
+
+**Verdict**: `LAASeR_GateV7` does **not** beat the champion or `LAASeR_GateV3` — kept, not deleted,
+logged as experiment eleven. The underlying idea (universal self-verification, no prompt-format
+dependency) remains sound and more general than the doctest-only draft it replaced, but this
+implementation has two now-documented reliability costs: a one-line candidate-discarding bug
+(fixed) and a structural risk of self-check-induced corruption from arg-packing mismatches between
+the model's own examples and its own code (not yet fixed). Before trying this family again, the
+self-check step should validate that each stated example's argument-tuple length matches the
+candidate's own detected parameter count (cheap, host-side, via `ast`) and discard any example that
+doesn't, rather than trusting the model to have packed its own arguments consistently.
+
 ## 2026-10-10/11 — A narrower trigger was proposed and withdrawn before measurement (overfitting risk)
 
 A follow-up candidate, `clarify/algorithms/laaser_gate_v5.py`, added one condition to v4's forced
