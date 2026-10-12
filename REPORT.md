@@ -985,6 +985,17 @@ as the team's actual submission candidate (replacing `LAASeRAlgorithm.py` in
 `PR_SUBMISSION_DRAFT.md`, which was never updated to reflect any of Fase 3's findings) is now a
 decision for the team, not an engineering question.
 
+**2026-10-12 second full-val confirmation** (the team asked to keep testing before promoting
+anything): a second full `--split val` run came in at TDS **0.7021** (nDCG 0.8649, Pass@1 72.99%,
+clarification rate 96.75%, over-asking 92.23%) — *higher* than the first run, not lower. Mean of
+the two full-val runs: **TDS 0.6928 ± 0.0094**, both individually above the public leader's 0.6410
+and above `GatedClarification`'s own measured 0.640 on the same 768-task intersection. Direct
+comparison against the leader holds for both runs individually (`Pinpoint_r1` 0.683, `Pinpoint_r2`
+0.703, vs. `gated_clarify`'s fixed 0.640) — this is no longer a single-run result. Still only 2 of
+the project's usual 3-run minimum at this (expensive, 770-task) scale; a third full-val run, or
+continued scrutiny of the clean-task over-asking cost, is the natural next step before any
+promotion decision.
+
 ## 2026-10-11 — Fase 3 challenger eleven (`LAASeR_GateV7`): universal self-check generalizes correctly, but introduces real instability
 
 **Hypothesis**: "code ran but produced the wrong output" is the single largest failure category
