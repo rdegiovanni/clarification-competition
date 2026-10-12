@@ -1,15 +1,15 @@
-# Run report — LAASeR_GateV9 (2026-10-12T08:29:47+00:00)
+# Run report — LAASeR_Pinpoint (2026-10-12T09:57:57+00:00)
 
 ## Metadata
 
 | Field | Value |
 |---|---|
-| Commit | `28a9d6e` (dirty — uncommitted changes) |
-| Algorithm file | clarify/algorithms/laaser_gate_v9.py |
+| Commit | `343b29b` (dirty — uncommitted changes) |
+| Algorithm file | clarify/algorithms/laaser_pinpoint.py |
 | Model | openai/gpt-4.1-mini |
 | Temperature | 0.7 (SDK default) |
-| Split / dataset | demo (smoke(classes=Mbpp,HumanEval,n=30)) |
-| Tasks evaluated | 30 |
+| Split / dataset | demo (smoke(source=val,classes=Mbpp,HumanEval,n=60)) |
+| Tasks evaluated | 60 |
 | Unit tests (tests/) | PASSED |
 
 ## Unit tests
@@ -22,26 +22,26 @@ Computed with `evaluate_responses.py`'s own `_compute_output_row` / `_turn_disco
 
 | Metric | Value | Meaning |
 |---|---|---|
-| **TDS** (ranking metric) | 0.7307 | turn-discounted success — higher is better |
-| **nDCG** (tie-break) | 0.1000 | clarification quality — higher is better |
-| Pass@1 | 73.33% | raw pass rate |
-| Clarification rate | 13.33% | % tasks where ≥1 question was asked |
-| Over-asking rate | 0.00% | % well-specified tasks needlessly questioned |
-| Avg. cost / task | $0.000635 | prompt cost only, reported, no rank effect |
+| **TDS** (ranking metric) | 0.7535 | turn-discounted success — higher is better |
+| **nDCG** (tie-break) | 0.8833 | clarification quality — higher is better |
+| Pass@1 | 78.33% | raw pass rate |
+| Clarification rate | 96.67% | % tasks where ≥1 question was asked |
+| Over-asking rate | 87.50% | % well-specified tasks needlessly questioned |
+| Avg. cost / task | $0.001063 | prompt cost only, reported, no rank effect |
 
 > Sampling temperature is 0.7 (non-zero), so re-running on the exact same commit/dataset will still shift these numbers by a point or two — treat small deltas below as noise, not signal. Only trust a difference that holds up across more than one run.
 
 ## Vs. previous run (same algorithm/model/split/dataset)
 
-Previous: commit `28a9d6e` at 2026-10-12T08:28:24+00:00
+Previous: commit `343b29b` at 2026-10-12T09:55:30+00:00
 
 | Metric | Previous | Now | Δ |
 |---|---|---|---|
-| TDS | 0.6640 | 0.7307 | ▲ +0.0667 |
-| nDCG | 0.1333 | 0.1000 | ▼ -0.0333 |
-| Pass@1 | 0.6667 | 0.7333 | ▲ +0.0666 |
-| Clarification rate | 0.1333 | 0.1333 | = +0.0000 |
-| Over-asking rate | 0.0000 | 0.0000 | = +0.0000 |
+| TDS | 0.7375 | 0.7535 | ▲ +0.0160 |
+| nDCG | 0.8500 | 0.8833 | ▲ +0.0333 |
+| Pass@1 | 0.7667 | 0.7833 | ▲ +0.0166 |
+| Clarification rate | 0.9667 | 0.9667 | = +0.0000 |
+| Over-asking rate | 0.9375 | 0.8750 | ▼ -0.0625 |
 
 ## Public leaderboard position (informational only)
 
@@ -49,7 +49,7 @@ Previous: commit `28a9d6e` at 2026-10-12T08:28:24+00:00
 
 | Rank | Algorithm | Team | Model | TDS |
 |---|---|---|---|---|
-| → | **LAASeR_GateV9 (this run)** | us | openai/gpt-4.1-mini | **0.7307** |
+| → | **LAASeR_Pinpoint (this run)** | us | openai/gpt-4.1-mini | **0.7535** |
 | 1 | GatedClarification | STIL-ETS | openai/gpt-4.1-mini | 0.6410 |
 | 2 | ContractFirstClarifier | D4vidHuang | openai/gpt-4.1-mini | 0.5973 |
 | 3 | Okanagan | baseline | openai/gpt-4.1-mini | 0.5917 |
@@ -60,21 +60,20 @@ Previous: commit `28a9d6e` at 2026-10-12T08:28:24+00:00
 
 | Benchmark | Passed | Total | Pass rate |
 |---|---|---|---|
-| Mbpp | 9 | 15 | 60.00% |
-| HumanEval | 13 | 15 | 86.67% |
+| Mbpp | 22 | 30 | 73.33% |
+| HumanEval | 25 | 30 | 83.33% |
 
 ## Failure reasons (priority order)
 
 | Reason | Count |
 |---|---|
-| code ran but failed with an unhandled error | 5 |
-| code ran but produced the wrong output | 2 |
-| no python code block returned | 1 |
+| code ran but produced the wrong output | 10 |
+| code ran but failed with an unhandled error | 3 |
 
 ## Failing task IDs
 
-HumanEval/139, HumanEval/55, Mbpp/143, Mbpp/229, Mbpp/26, Mbpp/559, Mbpp/755, Mbpp/759
+HumanEval/131, HumanEval/145, HumanEval/36, HumanEval/57, HumanEval/98, Mbpp/128, Mbpp/160, Mbpp/285, Mbpp/371, Mbpp/374, Mbpp/390, Mbpp/465, Mbpp/715
 
 ## Suggested next steps
 
-- Mbpp pass rate (60.00%) is notably weaker than HumanEval (86.67%) — look at Mbpp failures first.
+- Over-asking rate is 87.50% — the algorithm is questioning tasks that didn't need it, which directly costs TDS/nDCG vs. just answering.

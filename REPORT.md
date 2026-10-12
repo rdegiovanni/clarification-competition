@@ -866,6 +866,95 @@ that `LAASeR_Repair`'s own smoke-vs-val reversal made non-negotiable: a second s
 volunteers an example unprompted, or finding a way to request them without inviting extra
 questions) could close the last ~8pp gap to the champion's 5% ask rate -- not yet attempted.
 
+## 2026-10-12 — Methodology correction: the smoke-42 sample used for every prior challenger could never show asking's real benefit
+
+Before this entry, every challenger (one through thirteen) was screened on a 30-task smoke sample
+drawn exclusively from `*_original.jsonl` files via `scripts/make_smoke_dataset.py`'s default
+`--source original`. Those files carry **no hidden requirements from `data/clarifications.jsonl`
+at all** -- confirmed directly while debugging challenger #8/#9 (`Mbpp/229`'s and `Mbpp/559`'s
+smoke-sample records had neither a `clarifications` nor `reference_prompt` field, so the
+simulated human saw `[REDACTED]` and was reduced to guessing from its own prior knowledge, same as
+our own generator). What wasn't clear until now is that this is **not an occasional gap for a
+couple of tasks -- it is true of literally every task the smoke-42 sample could ever draw**, since
+`*_original.jsonl` files structurally never carry hidden requirements. On the real `--split val`
+(770 tasks), 75% of tasks DO carry hidden requirements and asking the right question measurably
+helps (per `scripts/analyze_leaderboard_raw.py`'s own numbers below). This means the 2026-10-11/12
+cross-cutting finding above ("every challenger that asked more scored worse") was measured on a
+sample where asking could, by construction, never pay off -- it is not necessarily evidence that
+asking more is bad on this competition's real task mix, only that it was bad on an unrepresentative
+sample. The finding about ask-rate correlating with TDS on *that specific sample* still stands as
+measured, but should not be read as a general law about the competition.
+
+Added to close this gap: `scripts/make_smoke_dataset.py --source val` (samples real validation-
+split rows across every perturbation file, one variant per task_id, so real hidden requirements
+attach -- val's actual mix is ~75% needing clarification, ~25% clean), `scripts/evaluate.sh
+--smoke-source val`, and `scripts/analyze_leaderboard_raw.py` (joins the organizers' own raw
+per-task results for every public-leaderboard algorithm, all on `openai/gpt-4.1-mini`, with
+`data/clarifications.jsonl`, splitting TDS/pass/ask by clean vs. needs-clarification and by number
+of hidden requirements -- the comparison a smoke-42-only sample could never support).
+
+## 2026-10-12 — Fase 3 challenger fourteen (`LAASeR_Pinpoint`): beats the public leader directly on the same 60 val tasks, same model
+
+**Hypothesis**: built directly on the methodology correction above. `LAASeR_Pinpoint`
+(`clarify/algorithms/laaser_pinpoint.py`) audits the task text in one call, localizing each defect
+with its exact quoted phrase, two competing readings, and an impact rating (HIGH when the readings
+produce different outputs on ordinary inputs); it codes directly in that same call when no
+HIGH-impact defect exists and the arguments/return format are fixed by the text, or asks exactly
+one atomic, closed-form question quoting the defect phrase and offering the two readings when one
+does. A bounded repair step (including an entry-point aliasing fallback for the single-top-level-
+function case) finalizes the candidate.
+
+**3-run result** on `--smoke-source val --smoke-size 60 --smoke-seed 42` (`openai/gpt-4.1-mini`,
+temperature 0.7) -- NOT the old smoke-42, which this entry's methodology correction shows cannot
+measure this at all:
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate | Over-asking rate |
+|---|---|---|---|---|---|
+| r1 | 0.7222 | 0.8667 | 75.00% | 95.00% | 87.50% |
+| r2 | 0.7375 | 0.8500 | 76.67% | 96.67% | 93.75% |
+| r3 | 0.7535 | 0.8833 | 78.33% | 96.67% | 87.50% |
+| **Mean ± stdev** | **0.7377 ± 0.0128** | **0.8667 ± 0.0136** | **76.67% ± 1.36pp** | **96.11% ± 0.79pp** | **89.58% ± 2.95pp** |
+
+**Direct comparison against the public leaderboard, same 60 tasks, same model** (via
+`scripts/analyze_leaderboard_raw.py`, joining the organizers' own raw per-task results for every
+public algorithm against `data/clarifications.jsonl`):
+
+| Algorithm | TDS | Pass@1 | Ask rate | Pass\|asked (need-clarification tasks, n=44) |
+|---|---|---|---|---|
+| **`LAASeR_Pinpoint` (mean of 3 runs)** | **0.738** | **0.767** | 0.97 | **0.683** (mean of 65.1/69.8/70.5%) |
+| `GatedClarification` (current #1 public leader) | 0.656 | 0.683 | 1.00 | 0.568 |
+| `Okanagan` (baseline) | 0.611 | 0.633 | 0.87 | 0.550 |
+| `ContractFirstClarifier` | 0.609 | 0.633 | 0.97 | 0.500 |
+| `LLMClarification` (direct, baseline) | 0.567 | 0.567 | 0.00 | — (never asks) |
+| `ClarifyGPT` (baseline) | 0.541 | 0.550 | 0.55 | 0.355 |
+
+`LAASeR_Pinpoint` beats every public-leaderboard algorithm's TDS on this identical 60-task,
+identical-model comparison, in all 3 runs. Confirmed via the hidden-requirement-count breakdown
+too: at 1 hidden requirement (22 tasks) `LAASeR_Pinpoint` passes 20/22 (0.91) vs. the leader's
+17/22 (0.77); at 2 hidden requirements (13 tasks) it passes 8/13 (0.62) vs. the leader's 5/13
+(0.38). The margin is not from asking more often -- `GatedClarification` already asks on 100% of
+needs-clarification tasks, same as `LAASeR_Pinpoint`'s ~98% -- it is from a measurably higher
+*pass rate when it does ask* (65-70% vs. the leader's 57%), i.e. `LAASeR_Pinpoint`'s audit-then-
+quote-the-phrase question construction resolves the real ambiguity more often than whatever the
+leader's own approach does.
+
+**Honest caveats before reading this as a confirmed win**: (1) this is a 60-task sample, not the
+full 770-task val split or the private test set, and 3 runs at temperature 0.7 is the minimum this
+project's own standing rule treats as signal, not proof; (2) the over-asking rate (89.58% mean) is
+high in absolute terms -- `LAASeR_Pinpoint` asks on most of the 16 "clean" tasks too (14/16 average
+across the 3 runs), paying a real turn-discount cost there, just not enough to offset the much
+larger gain on needs-clarification tasks on this sample; (3) `docs/data/raw/*_results.jsonl` are
+the organizers' own already-computed results, not re-run by us, so this comparison trusts their
+correctness but is otherwise as close to apples-to-apples as this project has had all day (same 60
+task_ids, same model, same scoring code path).
+
+**Verdict**: `LAASeR_Pinpoint` is the strongest, most rigorously-compared candidate produced in
+this entire research line, and the clean failure mode of the smoke-42-only approach it has now
+exposed is itself a major finding. Next steps before any promotion: confirm on a larger
+`--smoke-source val` sample or the full `--split val`, and read the per-task failures in the 16
+"clean" tasks it over-asked on to see whether the over-asking rate can be brought down without
+losing the needs-clarification win.
+
 ## 2026-10-11 — Fase 3 challenger eleven (`LAASeR_GateV7`): universal self-check generalizes correctly, but introduces real instability
 
 **Hypothesis**: "code ran but produced the wrong output" is the single largest failure category
