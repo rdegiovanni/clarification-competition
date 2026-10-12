@@ -851,6 +851,12 @@ champion on this sample. Net task-level diff (r3 vs. the champion's matched run)
 all thirteen challengers. Cost ($0.000608/task) remains far below every Gate-family execution-
 verified variant and even below the champion's own historical cost.
 
+**Naming note (2026-10-12)**: this file was renamed from `laaser_gate_v9.py` / `LAASeR_GateV9` to
+`laaser_selfcheck.py` / `LAASeR_SelfCheck` right after this entry was recorded, because — unlike
+the rest of the `laaser_gate_v*.py` lineage it grew out of — it has no "gate" verification step at
+all; the name had stopped describing what the code does. All numbers in this entry are unchanged
+and refer to the same code under its new name.
+
 **Verdict**: `LAASeR_GateV9` is the strongest candidate produced in this entire research line —
 kept, logged as experiment thirteen, and nominated as the next anti-overfitting validation target
 ahead of `LAASeR_GateV8` and `LAASeR_GateV3`. Before any promotion, it still needs the Fase 5 check

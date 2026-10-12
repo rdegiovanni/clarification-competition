@@ -1,4 +1,4 @@
-"""Regression tests for clarify/algorithms/laaser_gate_v9.py.
+"""Regression tests for clarify/algorithms/laaser_selfcheck.py.
 
 Offline, no network/Docker (same _FakeEnv pattern as tests/test_laaser_gate_v7.py). Unlike every
 Gate variant (v1-v7), this one does NOT add any new ask-decision mechanism: the single-call
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import unittest
 
-from clarify.algorithms.laaser_gate_v9 import LAASeR_GateV9
+from clarify.algorithms.laaser_selfcheck import LAASeR_SelfCheck
 from clarify.env import LimitsExceededException, TooManyQuestionException
 
 PROBLEM = {"prompt": "Write a function that adds two numbers.", "entry_point": "add"}
@@ -83,14 +83,14 @@ class LAASeRGateV8Test(unittest.TestCase):
         env = _FakeEnv(
             llm_responses=["QUESTION: for add(2, 2), should the result be 4?", NO_EXAMPLES_READY]
         )
-        result = LAASeR_GateV9().run(env, PROBLEM)
+        result = LAASeR_SelfCheck().run(env, PROBLEM)
         self.assertIn("def add", result)
         self.assertEqual(len(env.ask_human_calls), 1)
         self.assertEqual(env.exec_code_calls, 0)
 
     def test_no_examples_skips_self_check(self):
         env = _FakeEnv(llm_responses=[NO_EXAMPLES_READY])
-        result = LAASeR_GateV9().run(env, PROBLEM)
+        result = LAASeR_SelfCheck().run(env, PROBLEM)
         self.assertIn("def add", result)
         self.assertEqual(env.exec_code_calls, 0)
         self.assertEqual(env.ask_human_calls, [])
@@ -102,7 +102,7 @@ class LAASeRGateV8Test(unittest.TestCase):
                 "SELFCHECK_0=True actual=5 expected=5\nSELFCHECK_1=True actual=2 expected=2"
             ],
         )
-        result = LAASeR_GateV9().run(env, PROBLEM)
+        result = LAASeR_SelfCheck().run(env, PROBLEM)
         self.assertIn("return a + b", result)
         self.assertEqual(env.exec_code_calls, 1)
         self.assertEqual(env.ask_human_calls, [])
@@ -115,7 +115,7 @@ class LAASeRGateV8Test(unittest.TestCase):
                 "SELFCHECK_0=True actual=5 expected=5",
             ],
         )
-        result = LAASeR_GateV9().run(env, PROBLEM)
+        result = LAASeR_SelfCheck().run(env, PROBLEM)
         self.assertIn("return a + b", result)
         self.assertEqual(env.ask_human_calls, [])
 
@@ -123,13 +123,13 @@ class LAASeRGateV8Test(unittest.TestCase):
         # Candidate is already correct; a self-stated example with the wrong arg count must
         # be dropped by the guard, not used to "verify" (and corrupt) the candidate.
         env = _FakeEnv(llm_responses=[MISMATCHED_ARITY_EXAMPLES_READY])
-        result = LAASeR_GateV9().run(env, PROBLEM)
+        result = LAASeR_SelfCheck().run(env, PROBLEM)
         self.assertIn("return a + b", result)
         self.assertEqual(env.exec_code_calls, 0)
 
     def test_format_error_is_repaired_before_self_check(self):
         env = _FakeEnv(llm_responses=["not valid at all, no fence", NO_EXAMPLES_READY])
-        result = LAASeR_GateV9().run(env, PROBLEM)
+        result = LAASeR_SelfCheck().run(env, PROBLEM)
         self.assertIn("def add", result)
 
     def test_invalid_entrypoint_is_repaired(self):
@@ -139,12 +139,12 @@ class LAASeRGateV8Test(unittest.TestCase):
                 NO_EXAMPLES_READY,
             ]
         )
-        result = LAASeR_GateV9().run(env, PROBLEM)
+        result = LAASeR_SelfCheck().run(env, PROBLEM)
         self.assertIn("def add", result)
 
     def test_llm_budget_exceeded_returns_empty_without_raising(self):
         env = _FakeEnv(llm_exception=LimitsExceededException("over budget"))
-        result = LAASeR_GateV9().run(env, PROBLEM)
+        result = LAASeR_SelfCheck().run(env, PROBLEM)
         self.assertEqual(result, "")
 
     def test_clarification_budget_exceeded_returns_empty_without_raising(self):
@@ -152,7 +152,7 @@ class LAASeRGateV8Test(unittest.TestCase):
             llm_responses=["QUESTION: what should it return for empty input?"],
             ask_human_exception=TooManyQuestionException("too many questions"),
         )
-        result = LAASeR_GateV9().run(env, PROBLEM)
+        result = LAASeR_SelfCheck().run(env, PROBLEM)
         self.assertEqual(result, "")
 
 

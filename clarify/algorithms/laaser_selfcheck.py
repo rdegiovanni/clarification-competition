@@ -4,22 +4,25 @@
 
 """Algorithm name.
 
-LAASeR_GateV9 with the ConcreteQuestion wording nudge removed -- an isolation experiment.
+LAASeR_SelfCheck: the champion's own low-ask decision logic, plus a self-check-and-repair step.
 
-Fase 3 challenger #13 (ablation, not a progress iteration). `LAASeR_GateV9` stacked two additions
-onto the champion's own low-ask decision logic: `laaser_concretequestion.py`'s "prefer a concrete
-example when you do ask" wording, and an `EXAMPLES:`-writing self-check step. Its measured
-clarification rate (21.11%) came in well above both the champion's (5.00%) and
-`LAASeR_ConcreteQuestion`'s on its own (10.00%), raising the question of which of the two stacked
-pieces is responsible for the extra asking.
+Fase 3 challenger #13 in the lineage (originally developed and measured under the working name
+`laaser_gate_v9.py` / `LAASeR_GateV9`; renamed here because, unlike the `laaser_gate_v*.py`
+lineage it grew out of, this file has no "gate" verification step at all -- the name had stopped
+describing what the code does). It started as an isolation ablation of `laaser_gate_v8.py`
+(`LAASeR_GateV8`): that file stacked two additions onto the champion's own low-ask decision logic
+-- `laaser_concretequestion.py`'s "prefer a concrete example when you do ask" wording, and an
+`EXAMPLES:`-writing self-check step -- and measured a clarification rate (21.11%) well above both
+the champion's (5.00%) and `LAASeR_ConcreteQuestion`'s on its own (10.00%). This file isolates
+which addition was responsible by keeping only the `EXAMPLES:`/self-check piece and reverting the
+question wording to the champion's original plain phrasing.
 
-This file isolates that: it is byte-for-byte `LAASeR_GateV9` with ONLY the ConcreteQuestion
-wording sentence removed from the generation prompt, reverted to the champion's original plain
-"ask a simple and concrete question" phrasing. The `EXAMPLES:` request and the self-check-and-
-repair mechanism (with the same arg-count guard) are unchanged. If this variant's clarification
-rate lands back near the champion's ~5%, the ConcreteQuestion wording was driving the extra
-asking; if it still lands near `LAASeR_GateV9`'s 21%, asking the model to write `EXAMPLES:` at all
-is itself nudging it to notice (and ask about) more assumptions than the champion's prompt does.
+Result: clarification rate dropped to 13.33% (down from 21.11%, but still above the champion's
+5.00%) and TDS came out as the closest to the champion of any challenger measured in this entire
+Fase 3 line (gap 0.0186, smaller than this variant's own run-to-run stdev) -- so the ablation
+itself turned out to be the strongest candidate, not just a diagnostic. See `REPORT.md`'s
+2026-10-12 `LAASeR_GateV9` entry for the full numbers (recorded under that name; this is the same
+code, renamed afterward).
 
 Team: LAASeR - LIST
 Team Members: Matias Brizzio, Jordi Cabot, Renzo Degiovanni
@@ -351,7 +354,7 @@ def _self_check_and_repair(
     return code
 
 
-class LAASeR_GateV9(ClarificationAlgorithmBase):
+class LAASeR_SelfCheck(ClarificationAlgorithmBase):
     def run(self, env: ClarificationEnvironment, problem: dict[str, Any]) -> str:
         clarifications: list[str] = []
         candidate = ""
@@ -394,10 +397,10 @@ class LAASeR_GateV9(ClarificationAlgorithmBase):
                     status = CODE_GEN
 
         except TooManyQuestionException:
-            print("---> LAASeR_GateV9: TooManyQuestionException")
+            print("---> LAASeR_SelfCheck: TooManyQuestionException")
         except LimitsExceededException:
-            print("---> LAASeR_GateV9: LimitsExceededException")
+            print("---> LAASeR_SelfCheck: LimitsExceededException")
         except Exception:
-            print("---> LAASeR_GateV9: Exception")
+            print("---> LAASeR_SelfCheck: Exception")
         finally:
             return candidate  # noqa: B012 -- intentional: always return best-so-far candidate
