@@ -955,6 +955,36 @@ exposed is itself a major finding. Next steps before any promotion: confirm on a
 "clean" tasks it over-asked on to see whether the over-asking rate can be brought down without
 losing the needs-clarification win.
 
+**2026-10-12 follow-up — confirmed on the full 770-task `--split val`, not just a 60-task sample:**
+
+| | TDS | nDCG | Pass@1 | Clarification rate | Over-asking rate |
+|---|---|---|---|---|---|
+| `LAASeR_Pinpoint` (full val, 770 tasks) | **0.6834** | 0.8364 | 71.04% | 96.62% | 90.67% |
+
+Direct comparison against the organizers' own raw per-task results (768/770 tasks in common,
+same `openai/gpt-4.1-mini` model, via `scripts/analyze_leaderboard_raw.py`):
+
+| Algorithm | TDS | Pass@1 | Pass rate by hidden-requirement count: 0 / 1 / 2 / 3 / 4+ |
+|---|---|---|---|
+| **`LAASeR_Pinpoint`** | **0.683** | **0.710** | 0.92 / **0.77** / **0.63** / **0.35** / **0.25** |
+| `GatedClarification` (current #1 public leader) | 0.640 | 0.667 | **0.93** / 0.73 / 0.53 / 0.32 / 0.19 |
+| `ContractFirstClarifier` | 0.596 | 0.620 | 0.92 / 0.64 / 0.47 / 0.29 / 0.24 |
+| `Okanagan` (baseline) | 0.591 | 0.612 | 0.95 / 0.65 / 0.48 / 0.21 / 0.10 |
+| `ClarifyGPT` (baseline) | 0.561 | 0.572 | 0.98 / 0.56 / 0.39 / 0.26 / 0.12 |
+| `LLMClarification` (direct, baseline) | 0.496 | 0.496 | 0.98 / 0.46 / 0.28 / 0.11 / 0.05 |
+
+`LAASeR_Pinpoint` beats every public algorithm's TDS on the full val split, including the current
+#1 leader (margin: +0.043 TDS), and beats or ties the leader at every hidden-requirement-count
+bucket except the simplest "clean" (0 hidden requirements) bucket, where it trails by one task out
+of 192 (0.92 vs 0.93) -- the small over-asking cost on clean tasks this entry already flagged,
+now visible at full scale too but clearly outweighed by the gain everywhere else. This single run
+(not yet 3 repeats at full-val scale, which would be expensive) already **clears this project's
+stated goal** (beat the public leader's 0.6410 TDS) decisively and at full scale, not just on a
+60-task sample -- the strongest, most load-bearing result in the project's history. Promoting this
+as the team's actual submission candidate (replacing `LAASeRAlgorithm.py` in
+`PR_SUBMISSION_DRAFT.md`, which was never updated to reflect any of Fase 3's findings) is now a
+decision for the team, not an engineering question.
+
 ## 2026-10-11 — Fase 3 challenger eleven (`LAASeR_GateV7`): universal self-check generalizes correctly, but introduces real instability
 
 **Hypothesis**: "code ran but produced the wrong output" is the single largest failure category

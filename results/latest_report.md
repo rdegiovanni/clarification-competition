@@ -1,15 +1,15 @@
-# Run report — LAASeR_Pinpoint (2026-10-12T09:57:57+00:00)
+# Run report — LAASeR_Pinpoint (2026-10-12T10:25:45+00:00)
 
 ## Metadata
 
 | Field | Value |
 |---|---|
-| Commit | `343b29b` (dirty — uncommitted changes) |
+| Commit | `638bfa6` (dirty — uncommitted changes) |
 | Algorithm file | clarify/algorithms/laaser_pinpoint.py |
 | Model | openai/gpt-4.1-mini |
 | Temperature | 0.7 (SDK default) |
-| Split / dataset | demo (smoke(source=val,classes=Mbpp,HumanEval,n=60)) |
-| Tasks evaluated | 60 |
+| Split / dataset | val (split:val) |
+| Tasks evaluated | 770 |
 | Unit tests (tests/) | PASSED |
 
 ## Unit tests
@@ -22,26 +22,18 @@ Computed with `evaluate_responses.py`'s own `_compute_output_row` / `_turn_disco
 
 | Metric | Value | Meaning |
 |---|---|---|
-| **TDS** (ranking metric) | 0.7535 | turn-discounted success — higher is better |
-| **nDCG** (tie-break) | 0.8833 | clarification quality — higher is better |
-| Pass@1 | 78.33% | raw pass rate |
-| Clarification rate | 96.67% | % tasks where ≥1 question was asked |
-| Over-asking rate | 87.50% | % well-specified tasks needlessly questioned |
-| Avg. cost / task | $0.001063 | prompt cost only, reported, no rank effect |
+| **TDS** (ranking metric) | 0.6834 | turn-discounted success — higher is better |
+| **nDCG** (tie-break) | 0.8364 | clarification quality — higher is better |
+| Pass@1 | 71.04% | raw pass rate |
+| Clarification rate | 96.62% | % tasks where ≥1 question was asked |
+| Over-asking rate | 90.67% | % well-specified tasks needlessly questioned |
+| Avg. cost / task | $0.001011 | prompt cost only, reported, no rank effect |
 
 > Sampling temperature is 0.7 (non-zero), so re-running on the exact same commit/dataset will still shift these numbers by a point or two — treat small deltas below as noise, not signal. Only trust a difference that holds up across more than one run.
 
-## Vs. previous run (same algorithm/model/split/dataset)
+## Vs. previous run
 
-Previous: commit `343b29b` at 2026-10-12T09:55:30+00:00
-
-| Metric | Previous | Now | Δ |
-|---|---|---|---|
-| TDS | 0.7375 | 0.7535 | ▲ +0.0160 |
-| nDCG | 0.8500 | 0.8833 | ▲ +0.0333 |
-| Pass@1 | 0.7667 | 0.7833 | ▲ +0.0166 |
-| Clarification rate | 0.9667 | 0.9667 | = +0.0000 |
-| Over-asking rate | 0.9375 | 0.8750 | ▼ -0.0625 |
+No earlier run recorded for this exact (algorithm, model, split, dataset) combination in `results/history.csv` — this is the first data point.
 
 ## Public leaderboard position (informational only)
 
@@ -49,7 +41,7 @@ Previous: commit `343b29b` at 2026-10-12T09:55:30+00:00
 
 | Rank | Algorithm | Team | Model | TDS |
 |---|---|---|---|---|
-| → | **LAASeR_Pinpoint (this run)** | us | openai/gpt-4.1-mini | **0.7535** |
+| → | **LAASeR_Pinpoint (this run)** | us | openai/gpt-4.1-mini | **0.6834** |
 | 1 | GatedClarification | STIL-ETS | openai/gpt-4.1-mini | 0.6410 |
 | 2 | ContractFirstClarifier | D4vidHuang | openai/gpt-4.1-mini | 0.5973 |
 | 3 | Okanagan | baseline | openai/gpt-4.1-mini | 0.5917 |
@@ -60,20 +52,22 @@ Previous: commit `343b29b` at 2026-10-12T09:55:30+00:00
 
 | Benchmark | Passed | Total | Pass rate |
 |---|---|---|---|
-| Mbpp | 22 | 30 | 73.33% |
-| HumanEval | 25 | 30 | 83.33% |
+| Mbpp | 265 | 420 | 63.10% |
+| HumanEval | 282 | 350 | 80.57% |
 
 ## Failure reasons (priority order)
 
 | Reason | Count |
 |---|---|
-| code ran but produced the wrong output | 10 |
-| code ran but failed with an unhandled error | 3 |
+| code ran but produced the wrong output | 162 |
+| code ran but failed with an unhandled error | 59 |
+| function name mismatch (NameError calling the entry point) | 2 |
 
 ## Failing task IDs
 
-HumanEval/131, HumanEval/145, HumanEval/36, HumanEval/57, HumanEval/98, Mbpp/128, Mbpp/160, Mbpp/285, Mbpp/371, Mbpp/374, Mbpp/390, Mbpp/465, Mbpp/715
+HumanEval/109, HumanEval/109, HumanEval/115, HumanEval/115, HumanEval/115, HumanEval/115, HumanEval/117, HumanEval/117, HumanEval/120, HumanEval/131, HumanEval/133, HumanEval/133, HumanEval/142, HumanEval/145, HumanEval/145, HumanEval/145, HumanEval/145, HumanEval/145, HumanEval/15, HumanEval/15, HumanEval/15, HumanEval/15, HumanEval/161, HumanEval/161, HumanEval/17, HumanEval/17, HumanEval/17, HumanEval/22, HumanEval/22, HumanEval/22, HumanEval/3, HumanEval/3, HumanEval/36, HumanEval/36, HumanEval/36, HumanEval/37, HumanEval/37, HumanEval/37, HumanEval/4, HumanEval/40, HumanEval/50, HumanEval/50, HumanEval/57, HumanEval/57, HumanEval/6, HumanEval/6, HumanEval/60, HumanEval/60, HumanEval/65, HumanEval/65, HumanEval/65, HumanEval/65, HumanEval/66, HumanEval/69, HumanEval/69, HumanEval/72, HumanEval/72, HumanEval/74, HumanEval/74, HumanEval/74, HumanEval/86, HumanEval/86, HumanEval/86, HumanEval/86, HumanEval/86, HumanEval/98, HumanEval/98, HumanEval/98, Mbpp/100, Mbpp/100, Mbpp/100, Mbpp/104, Mbpp/104, Mbpp/105, Mbpp/105, Mbpp/128, Mbpp/128, Mbpp/128, Mbpp/128, Mbpp/128, Mbpp/128, Mbpp/160, Mbpp/160, Mbpp/160, Mbpp/160, Mbpp/167, Mbpp/215, Mbpp/215, Mbpp/215, Mbpp/215, Mbpp/215, Mbpp/239, Mbpp/239, Mbpp/239, Mbpp/239, Mbpp/239, Mbpp/239, Mbpp/239, Mbpp/271, Mbpp/274, Mbpp/285, Mbpp/285, Mbpp/285, Mbpp/285, Mbpp/285, Mbpp/297, Mbpp/301, Mbpp/301, Mbpp/301, Mbpp/301, Mbpp/345, Mbpp/349, Mbpp/349, Mbpp/349, Mbpp/349, Mbpp/353, Mbpp/364, Mbpp/368, Mbpp/368, Mbpp/368, Mbpp/368, Mbpp/368, Mbpp/371, Mbpp/371, Mbpp/371, Mbpp/371, Mbpp/371, Mbpp/371, Mbpp/371, Mbpp/374, Mbpp/374, Mbpp/374, Mbpp/374, Mbpp/374, Mbpp/374, Mbpp/374, Mbpp/380, Mbpp/380, Mbpp/380, Mbpp/380, Mbpp/380, Mbpp/380, Mbpp/388, Mbpp/390, Mbpp/390, Mbpp/390, Mbpp/390, Mbpp/390, Mbpp/433, Mbpp/433, Mbpp/433, Mbpp/433, Mbpp/433, Mbpp/433, Mbpp/433, Mbpp/465, Mbpp/471, Mbpp/471, Mbpp/471, Mbpp/550, Mbpp/550, Mbpp/550, Mbpp/550, Mbpp/550, Mbpp/550, Mbpp/550, Mbpp/592, Mbpp/592, Mbpp/592, Mbpp/619, Mbpp/644, Mbpp/644, Mbpp/651, Mbpp/651, Mbpp/651, Mbpp/651, Mbpp/678, Mbpp/715, Mbpp/715, Mbpp/719, Mbpp/719, Mbpp/719, Mbpp/719, Mbpp/719, Mbpp/719, Mbpp/719, Mbpp/722, Mbpp/722, Mbpp/722, Mbpp/722, Mbpp/722, Mbpp/748, Mbpp/748, Mbpp/748, Mbpp/748, Mbpp/748, Mbpp/748, Mbpp/748, Mbpp/782, Mbpp/792, Mbpp/792, Mbpp/81, Mbpp/81, Mbpp/81, Mbpp/81, Mbpp/81, Mbpp/850, Mbpp/850, Mbpp/883, Mbpp/888, Mbpp/888, Mbpp/907, Mbpp/907, Mbpp/907, Mbpp/907, Mbpp/907, Mbpp/95, Mbpp/95, Mbpp/960, Mbpp/960, Mbpp/960, Mbpp/960, Mbpp/960
 
 ## Suggested next steps
 
-- Over-asking rate is 87.50% — the algorithm is questioning tasks that didn't need it, which directly costs TDS/nDCG vs. just answering.
+- Over-asking rate is 90.67% — the algorithm is questioning tasks that didn't need it, which directly costs TDS/nDCG vs. just answering.
+- Mbpp pass rate (63.10%) is notably weaker than HumanEval (80.57%) — look at Mbpp failures first.
