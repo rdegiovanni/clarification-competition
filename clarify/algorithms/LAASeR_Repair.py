@@ -206,7 +206,7 @@ class LAASeR_Repair(ClarificationAlgorithmBase):
                     response = _repair_parsing_error(env,problem,clarifications,response)
                 else: # status == PARSING_OK
                     # TODO: consider test generation?
-                    return response
+                    return candidate
 
                 # check llm response status
                 if READY_TO_CODE_KEY in response:
