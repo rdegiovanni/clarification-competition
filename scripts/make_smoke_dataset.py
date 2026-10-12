@@ -42,7 +42,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=60, help="Total tasks across all classes combined")
     ap.add_argument("--classes", default="Mbpp,HumanEval")
-    ap.add_argument("--seed", type=int, default=None, help="Omit for a fresh random sample every call")
+    ap.add_argument(
+        "--seed", type=int, default=None, help="Omit for a fresh random sample every call"
+    )
     ap.add_argument("--out-dir", default="data/smoke")
     args = ap.parse_args()
 
@@ -83,7 +85,9 @@ def main() -> None:
                     out_row["test_cases"] = row["test_cases"]
                 f.write(json.dumps(out_row) + "\n")
 
-        rel_path = out_path.relative_to(REPO_ROOT) if out_path.is_relative_to(REPO_ROOT) else out_path
+        rel_path = (
+            out_path.relative_to(REPO_ROOT) if out_path.is_relative_to(REPO_ROOT) else out_path
+        )
         written_paths.append(str(rel_path))
         print(f"{class_name}: wrote {k} tasks to {rel_path}", file=sys.stderr)
 

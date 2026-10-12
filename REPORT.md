@@ -177,3 +177,770 @@ changing anything, demo set (30 tasks, Mbpp-only), `openai/gpt-4.1-mini`:
 **Correction**: the val-split confirmation run mentioned above was cancelled
 before completing (explicit instruction, no results produced) — superseded,
 not finished.
+
+## 2026-10-09 — Fase 1 failure analysis + first Fase 3 challenger (`LAASeR_RepairV2`): does not beat the champion
+
+**Fase 1 deliverable**: `docs/failure-analysis.md`, built from a 30-task two-class smoke set
+(seed 42, `openai/gpt-4.1-mini`), 3 runs each for the champion `LAASeR_Repair`,
+`LAASeRAlgorithm`, `LAASeR3Algorithm`, and the organizer `LLMClarification` baseline. Found and
+fixed a real bug in our own `scripts/compare_runs.py` diagnostics along the way (it was comparing
+a task id against algorithm-label dict keys instead of checking label membership, so universal-
+failure/oracle-rate numbers were silently always zero). Headline: 6/30 tasks fail for every
+algorithm we have data for (`HumanEval/139, Mbpp/143, Mbpp/229, Mbpp/26, Mbpp/559, Mbpp/759`),
+oracle rate (solved by at least one algorithm) is 24/30 (80%). Full per-task root-cause writeup,
+cross-algorithm architecture notes, and a prioritized Fase 3 hypothesis list are in that doc.
+
+**Separately, a real operational hazard found while screening the first Fase 3 challenger**: a
+single huge-int task (`HumanEval/139`) can crash an *entire* `evaluate_responses.py` batch,
+discarding every other task's result, unless `PYTHONINTMAXSTRDIGITS=0` is exported in the shell
+first — reproduced directly (crashed at 12/30 without the env var, completed cleanly at 30/30
+with it). Documented in `CLAUDE.md`'s Known SDK quirks section and `docs/failure-analysis.md`'s
+`HumanEval/139` entry; not a fix to the task itself (organizer-owned sandbox), just a workaround
+so one task can't take down a whole run's data.
+
+**Fase 3 challenger #1**: `clarify/algorithms/laaser_repair_v2.py` (`LAASeR_RepairV2`) — a repair-
+loop variant with a hard `MAX_REPAIR_ATTEMPTS` cap, a `best_parseable_code` fallback instead of
+discarding an unusable response outright, explicit `NO_KEYWORD` status handling, and an anchored
+question-detection regex. Same 30-task seed-42 smoke set, 3 runs, `openai/gpt-4.1-mini`:
+
+| Run | TDS | Pass@1 |
+|---|---|---|
+| r1 | 0.6667 | 66.67% |
+| r2 | 0.7000 | 70.00% |
+| r3 | 0.6667 | 66.67% |
+| **mean ± stdev** | **0.6778 ± 0.0192** | **67.78% ± 1.92pp** |
+
+Champion `LAASeR_Repair` on the identical 3-seed setup: TDS 0.7222 ± 0.0192, Pass@1 72.22% ±
+1.92pp (runs 0.7333/0.7000/0.7333). The gap (0.044 TDS) exceeds either group's stdev and holds
+across all 3 runs — every `LAASeR_RepairV2` run is at or below the champion's *lowest* run, and
+2 of 3 are strictly worse than every champion run. Over-asking stayed at 0.00% in both, so this
+isn't a case of trading over-asking for pass rate either way. Task-matrix diff: `RepairV2`'s most
+recent run newly loses `HumanEval/6` relative to the champion (plus the two already-known
+noise-flip tasks `HumanEval/154`/`Mbpp/755`), gains nothing back.
+
+**Verdict**: `LAASeR_RepairV2` does **not** beat the champion — real, held signal, not noise.
+Per the mission's non-negotiable rules it is **kept, not deleted**, as a documented losing
+variant (experiment #1 of the Fase-3 safety cap). Moving on to the Fase 3 hypothesis list's #1
+item next (signature/arity clarifying question for stub-less MBPP tasks — targets `Mbpp/229`/
+`Mbpp/559` directly, the single strongest multi-instance pattern found in the Fase 1 analysis).
+
+## 2026-10-09 — Fase 3 challenger #2 (`LAASeR_Signature`): also does not beat the champion, and doesn't even fix what it targeted
+
+**Fase 3 challenger #2**: `clarify/algorithms/laaser_signature.py` (`LAASeR_Signature`) — hypothesis
+#1 from `docs/failure-analysis.md`'s prioritized list. Structurally an exact copy of the champion
+`LAASeR_Repair` (same repair loop, same format/entry-point/parsing-error recovery) with exactly one
+isolated change: an added paragraph in `READY_TO_CODE_TEMPLATE` warning the model not to assume a
+function's parameter list from prose alone when no stub/signature is shown, and framing that
+uncertainty itself as a valid reason to ask. Targeted directly at `Mbpp/229`/`Mbpp/559` (the
+`(arr, n)`-style implicit-arity pattern documented in Fase 1). Same 30-task seed-42 smoke set, 3
+runs, `openai/gpt-4.1-mini`:
+
+| Run | TDS | Pass@1 | Clarification rate |
+|---|---|---|---|
+| r1 | 0.6640 | 66.67% | 16.67% |
+| r2 | 0.6640 | 66.67% | 13.33% |
+| r3 | 0.6640 | 66.67% | 13.33% |
+| **mean ± stdev** | **0.6640 ± 0.0000** | **66.67% ± 0.00pp** | **15.56% ± 1.93pp** |
+
+Champion `LAASeR_Repair` on the identical 3-seed setup: TDS 0.7222 ± 0.0192, Pass@1 72.22% ±
+1.92pp, clarification rate 3.33%. The gap (0.058 TDS) exceeds either group's stdev and holds
+across all 3 runs — every `LAASeR_Signature` run is below the champion's *lowest* run. Over-asking
+stayed at 0.00% in both (the extra questions aren't being flagged as unwarranted by the harness),
+but the clarification rate nearly 5x'd (3.33% → 15.56% mean) with no corresponding Pass@1 gain —
+the extra turns cost TDS directly via the turn-discount even where the eventual answer was still
+correct.
+
+**The hypothesis itself failed empirically, not just the net score**: checked `clarification_history`
+for `Mbpp/229`/`Mbpp/559` directly in all 3 runs' `results.jsonl` — the model **never asked** about
+either task in any of the 3 runs (`clarification_history: []` throughout, identical to the
+champion). The added warning paragraph did make the model ask more *elsewhere*, but not on the two
+specific tasks it was written for. Task-matrix diff (most recent run vs. champion): `Signature`
+newly loses `HumanEval/154`, `Mbpp/755`, and `Mbpp/914` (all three pass under the champion), and
+recovers nothing. Full matrix: `results/internal_leaderboard.md`.
+
+**Verdict**: `LAASeR_Signature` does **not** beat the champion — a clear regression, held across
+all 3 runs (in fact zero inter-run variance on TDS/Pass@1, a stronger signal than usual noise would
+produce), and it fails to achieve the one thing it was built for. Kept, not deleted, as experiment
+#2 of the Fase-3 safety cap (2 of 25 experiments used, 2 consecutive non-improving). Takeaway for
+future attempts at this same hypothesis: a generic "ask if the signature is uncertain" nudge isn't
+enough to make the model actually ask on these two specific tasks — the prose for `Mbpp/229`/
+`Mbpp/559` apparently reads as fully-specified to the model even with the warning in place, and the
+nudge's main side effect was indiscriminately raising the ask rate elsewhere instead. A future
+attempt would need something more targeted (e.g. explicitly flagging the "redundant array-length
+parameter" convention by name, or detecting array/list-typed prompts with no stub as a trigger)
+rather than a generic epistemic-humility warning. Moving on to the Fase 3 hypothesis list's #3 item
+next (standalone entry-point/signature-trust wording strengthening, measured in isolation) since
+#2 (self-verification) is more expensive and #1's natural next iteration needs more thought before
+spending another experiment slot on it.
+
+## 2026-10-09 — Fase 3 challenger #3 (`LAASeR_EntryTrust`): third consecutive non-improving result
+
+**Fase 3 challenger #3**: `clarify/algorithms/laaser_entrytrust.py` (`LAASeR_EntryTrust`) —
+hypothesis #3 from `docs/failure-analysis.md`'s prioritized list. Structurally an exact copy of the
+champion `LAASeR_Repair` with exactly one isolated change: the champion's one-line entry-point
+reminder in `READY_TO_CODE_TEMPLATE` is replaced with the stronger, more explicit wording already
+used in the older `LAASeRAlgorithm.py` ("even if the task text above uses a different name for it
+... any other name fails every test regardless of whether the logic is correct"). Idea was to close
+the wording gap between our two existing algorithms and see if the stronger phrasing reduces
+entry-point-name mismatches. Same 30-task seed-42 smoke set, 3 runs, `openai/gpt-4.1-mini`:
+
+| Run | TDS | Pass@1 | Clarification rate |
+|---|---|---|---|
+| r1 | 0.6667 | 66.67% | 6.67% |
+| r2 | 0.6667 | 66.67% | 6.67% |
+| r3 | 0.6333 | 63.33% | 6.67% |
+| **mean ± stdev** | **0.6556 ± 0.0193** | **65.56% ± 1.93pp** | **6.67% ± 0.00pp** |
+
+Champion `LAASeR_Repair` on the identical 3-seed setup: TDS 0.7222 ± 0.0192, Pass@1 72.22% ±
+1.92pp, clarification rate 3.33%. The gap (0.0666 TDS) exceeds either group's stdev and holds
+across all 3 runs — every `LAASeR_EntryTrust` run is at or below the champion's *lowest* run.
+Over-asking stayed at 0.00% in both.
+
+**Task-matrix diff** (most recent run vs. champion, full matrix in
+`results/internal_leaderboard.md`): `EntryTrust` newly loses `HumanEval/129`, `HumanEval/154`,
+`Mbpp/755`, and `Mbpp/90` (all four pass under the champion) and recovers nothing. None of the
+6 universal failures this smoke sample has always had (`HumanEval/139`, `Mbpp/143`, `Mbpp/229`,
+`Mbpp/26`, `Mbpp/559`, `Mbpp/759`) are entry-point-name mismatches in the first place — this
+30-task sample simply doesn't contain any of the "ambiguous stub renames the function" `HumanEval`
+variant tasks the original wording-gap bug (documented earlier in this file, 2026-10-08) was found
+on at full `val` scale. So the stronger wording had no failure mode to fix in this sample, and its
+only measurable effect was the same kind of side-effect regression seen with challenger #2: making
+the prompt longer/more emphatic nudges the model's behavior elsewhere in ways that cost a few tasks
+without recovering any.
+
+**Verdict**: `LAASeR_EntryTrust` does **not** beat the champion. Kept, not deleted, as experiment
+#3 of the Fase-3 safety cap (3 of 25 experiments used). **This is now 3 consecutive non-improving
+experiments** (`LAASeR_RepairV2`, `LAASeR_Signature`, `LAASeR_EntryTrust`) — one short of the
+4-consecutive-non-improving stop threshold in the mission's safety cap. Takeaway: isolated wording
+tweaks to the champion's existing prompt, measured on this particular 30-task smoke sample, keep
+producing the same shape of result — no measurable fix (because the sample doesn't exercise the
+targeted failure mode) plus a small, consistent regression elsewhere from the added prompt text.
+Before spending a 4th consecutive slot on another small wording variant, the next attempt should
+either (a) target a failure mode that is actually *present* in this smoke sample (not just at full
+`val` scale), or (b) test the current best candidates (`LAASeR_RepairV2`, `LAASeR_Signature`,
+`LAASeR_EntryTrust`) against a different task sample/seed to check whether the champion's edge is
+sample-specific before concluding these variants are categorically worse.
+
+## 2026-10-09 — Fase 3 challenger four (`LAASeR_ConcreteQuestion`): fourth consecutive non-improving result, safety cap reached
+
+**Hypothesis**: rather than changing *whether* the champion asks a clarifying question (the
+generic nudge direction already tried and already backfired in challenger two), target *what* the
+question looks like on cases where the model was already going to ask anyway. Grounded directly in
+the Fase 1 failure analysis for `Mbpp/26`: the champion already asks on that task, but the question
+it asks is abstract/definitional ("what is the parameter k, and what elements should be checked
+against the tuples?"), gets a confidently-stated but wrong answer, and fails anyway. The new
+variant adds one paragraph to the existing `READY_TO_CODE_TEMPLATE` telling the model that, if it
+does ask, it should prefer a concrete input/output example over an abstract description — nothing
+else changes versus the champion `LAASeR_Repair`.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6987 | 0.1000 | 70.00% | 10.00% |
+| r2 | 0.6653 | 0.1000 | 66.67% | 10.00% |
+| r3 | 0.6987 | 0.0667 | 70.00% | 10.00% |
+| **Mean ± stdev** | **0.6876 ± 0.0193** | 0.0889 ± 0.0192 | **68.89% ± 1.92pp** | **10.00% ± 0.00pp** |
+
+Champion `LAASeR_Repair` on the identical setup: TDS 0.7222 ± 0.0192, Pass@1 72.22% ± 1.92pp,
+clarification rate 3.33%. The gap (0.0346 TDS) exceeds either group's stdev and holds across all 3
+runs.
+
+**Direct inspection of the mechanism** (per the falsification discipline established after
+challenger two): checked `clarification_history` for every task that asks a question in all 3 runs.
+The nudge is consistently reproducible — all 3 runs ask on exactly the same 3 tasks, every time:
+
+- `Mbpp/26` (the actually-targeted task): the model now reliably asks for a concrete input/output
+  example instead of an abstract definition, exactly as intended — but the simulated human's
+  answer is itself inconsistent/wrong relative to the real spec in all 3 runs, so the task still
+  fails. The content of the question changed as designed; it did not change the outcome.
+- `Mbpp/251`: **new side effect.** The champion never asks on this task (confirmed by checking the
+  champion's own clarification history for the same task across its 3 runs) and passes directly.
+  `LAASeR_ConcreteQuestion` now asks here too — the task still passes, but the extra turn applies
+  the TDS turn-discount for no benefit.
+- `Mbpp/759`: **new side effect.** Same pattern — champion never asks and still fails; this variant
+  now asks too, with no change in outcome (still fails) and an extra wasted turn.
+
+So three runs' worth of evidence converges on the same explanation challenger two already surfaced:
+a prompt change aimed at nudging clarification behavior reliably spills over into asking on tasks
+it was never meant to touch, even when the change is scoped to question *content* rather than
+*whether to ask*. The clarification rate roughly tripling (3.33% → 10.00%) is the direct, measured
+cost of that spillover; the one task it was designed to help shows no benefit at all because the
+simulated human's answer quality — not the question's phrasing — was the actual bottleneck.
+
+**Verdict**: `LAASeR_ConcreteQuestion` does **not** beat the champion. Kept, not deleted, as
+experiment four of the Fase-3 safety cap (4 of 25 experiments used). **This is now four
+consecutive non-improving experiments** (`LAASeR_RepairV2`, `LAASeR_Signature`,
+`LAASeR_EntryTrust`, `LAASeR_ConcreteQuestion`) — this meets the mission's safety-cap stop
+condition (4 consecutive non-improving). Per the mission rules, Fase 3 experimentation on direct
+prompt-wording variants of the champion should pause here for a checkpoint with the team rather
+than silently continuing to a fifth attempt. Two converging reasons stand out from four straight
+experiments: (1) every failing task in this particular 30-task smoke sample that the champion
+already gets right either depends on the simulated human answering well (not on how the question
+is worded) or is a universal failure no wording change reaches; and (2) any prompt addition that
+tries to influence clarification behavior — more assertive, more wording-specific, or more
+example-oriented — measurably increases the ask rate on tasks that didn't need it, at a real TDS
+cost, without yet producing a single clear win. The open question for the team: keep iterating on
+champion-prompt variants against this same 30-task sample, or pivot to testing current candidates
+against a different seed/sample (to rule out this specific sample being an unfavorable one for any
+wording change), or explore a structurally different approach (e.g. the `LAASeR3Algorithm`/evidence
+-gated plan already drafted) instead of further prompt-only tweaks.
+
+**Checkpoint decision**: at this four-consecutive-non-improving stop point, the call was made to
+pause automatic Fase 3 experimentation here rather than keep spending runs on more wording
+variants, a different seed, or a structural pivot. `LAASeR_Repair` remains the champion
+(TDS 0.7222 ± 0.0192 on this smoke sample). All four non-improving challengers
+(`LAASeR_RepairV2`, `LAASeR_Signature`, `LAASeR_EntryTrust`, `LAASeR_ConcreteQuestion`) are kept in
+`clarify/algorithms/` per the mission rules, not deleted. Next steps are for the team to decide
+before any further experiment is launched.
+
+## 2026-10-09 — Fase 3 challenger five (`LAASeR_Gate`): first structural pivot, loses on net score but confirms a major mechanism
+
+**Hypothesis**: at the checkpoint above, the team's own read of `clarify/env.py`'s simulated-human
+system prompt (`HUMAN_SYSTEM_PROMPT`) revealed *why* the champion's `Mbpp/26` question failed: the
+simulated human grades every question against five criteria (CRITICALITY / SEARCH SPACE / LEAKAGE
+/ ATOMICITY / OBJECTIVITY) before answering, and a question that bundles two sub-asks ("what is
+the parameter k, **and** what elements should be checked?") fails ATOMICITY, which the prompt's
+own rules say gets a deliberately vague, non-committal answer rather than a precise one. Separately,
+`laaser_signature.py`'s generic "don't assume the parameter list" warning had already been shown
+(challenger #2) to never actually fire on the arity-ambiguous tasks it targeted. `LAASeR_Gate`
+(`clarify/algorithms/laaser_gate.py`) attacks both with one structural change — splitting the
+champion's single "decide to ask or code" call into two: a **DRAFT** call that writes the
+candidate plus a self-reported `ASSUMPTIONS:` list of anything inferred but not stated in the
+task text, and a **GATE** call that is shown the draft and its own assumptions and must pick at
+most one that would actually change correctness, asking a single atomic, concrete, closed-form
+question about it (or `DONE` if none would).
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate | Cost/task |
+|---|---|---|---|---|---|
+| r1 | 0.6082 | 1.0000 | 63.33% | 100.00% | $0.001315 |
+| r2 | 0.6402 | 0.9667 | 66.67% | 100.00% | $0.001294 |
+| r3 | 0.5762 | 1.0000 | 60.00% | 100.00% | $0.001309 |
+| **Mean ± stdev** | **0.6174 ± 0.0320** | **0.9889 ± 0.0192** | **64.44% ± 3.34pp** | **100.00% ± 0.00pp** | **$0.001306** |
+
+Champion `LAASeR_Repair` on the identical setup: TDS 0.7222 ± 0.0192, nDCG 0.0333 ± 0.0000,
+Pass@1 72.22% ± 1.92pp, clarification rate 3.33%, cost/task $0.000289. The TDS gap (0.1048)
+exceeds either group's stdev and holds across all 3 runs — `LAASeR_Gate` does **not** beat the
+champion, and costs ~4.5x more per task (two LLM calls per round instead of one; flagged per the
+mission's cost-tracking rule, though 4.5x is modest next to ClarifyGPT's ~34x).
+
+**Mechanism check, two findings, one confirmed strongly and one still unresolved:**
+
+1. **Confirmed, strong**: the atomic/concrete-question design works almost perfectly against the
+   simulated human's real rubric. Across all 90 questions asked in the 3 runs (30 tasks × 3 runs,
+   100% clarification rate), **89/90 scored QUALITY=3** (the one QUALITY=1 outlier was in r2); mean
+   nDCG 0.9889 vs. the champion's 0.0333 — a ~30x improvement in question quality. Directly
+   verified on the previously-documented `Mbpp/26` case: this time the question is single-fact and
+   concrete ("If the input is `check_k_elements([(1, 2), (2, 3)], 3)`, should the function return
+   True?") and gets back a precise, confident, QUALITY=3 answer — the exact failure mode the user
+   flagged (abstract/bundled question → vague wrong answer) is gone at the question-quality level.
+   `HumanEval/55` — the case `docs/failure-analysis.md` explicitly flagged as *not fixable* by
+   self-verification against the prompt's own doctests (the hidden test exercises an edge case the
+   stated doctests don't cover) — is fixed here directly by asking: `Should fib(0) return 0, 1, or
+   raise an error?` → `fib(0) should return 0` → the task now passes. A real, mechanism-level win.
+2. **Still unresolved**: the gate essentially never says `DONE` — 100.00% clarification rate in all
+   3 runs, 0 occurrences of "no question" observed. Forcing the DRAFT step to always produce an
+   `ASSUMPTIONS:` list gives the GATE step something plausible-sounding to flag on *every* task,
+   including ones the champion already solves without asking — that's the direct cost behind the
+   Pass@1 drop (64.44% vs 72.22%). Task-level diff (r3 vs. the champion's most recent matching run):
+   `LAASeR_Gate` newly loses `Mbpp/115, Mbpp/251, Mbpp/755, Mbpp/90, HumanEval/7, HumanEval/6` (all
+   six pass under the champion) and newly gains `HumanEval/108, HumanEval/55` — net -4 tasks, this
+   over-asking cost outweighing the quality win on this sample. Separately, the signature/arity
+   hypothesis (challenger #2's original target) is **still not solved**: on `Mbpp/229` the gate asks
+   about zero-handling, and on `Mbpp/559` about empty-list behavior — real, atomic, QUALITY=3
+   questions, but neither is the actual missing-parameter root cause from `docs/failure-analysis.md`.
+   The model's self-reported `ASSUMPTIONS:` list apparently never spontaneously includes "there may
+   be a parameter the text never names" as a candidate — the same blind spot `laaser_signature.py`
+   had, just relocated one level up (into what counts as a self-reported assumption rather than
+   into a generic warning).
+
+**Verdict**: `LAASeR_Gate` does **not** beat the champion on net score — kept, not deleted, per the
+mission's rules, logged as experiment five. Unlike challengers #1–#4, this is not a clean "no
+effect" result: it isolates the real lever (question *atomicity*, confirmed with a ~30x nDCG
+improvement and one concrete Pass@1 win on `HumanEval/55`) from the real cost (an under-selective
+gate that asks on everything). The natural next iteration is **not** another full architecture
+change, but tightening the GATE call's bar for asking — e.g. explicit cost-framing ("asking costs
+you this task's turn-discount; only ask if the two most likely interpretations of this assumption
+would make the candidate behave *differently* on a case the task text could plausibly test") —
+plus giving the DRAFT step's `ASSUMPTIONS:` prompt an explicit, named prompt to consider "a
+parameter the text never names" as its own assumption category, rather than leaving it to be found
+incidentally. Not yet attempted; next experiment slot.
+
+## 2026-10-10 — Fase 3 challenger six (`LAASeR_GateV2`): execution-verified gate cuts over-asking by more than half, still short of the champion
+
+**Hypothesis**: before designing this challenger, searched for related published work (per the
+team's request) and found **CONTRA** ("Discovering and Qualifying Behavior-Changing Questions for
+Selective Clarification in LLM Code Generation", arXiv:2610.01769) — its stated premise is almost a
+diagnosis of challenger #5's failure: rather than trust an LLM's own "this assumption is critical"
+self-report, generate two candidates under two plausible answers and only keep a question if they
+**actually diverge in behavior** on shared inputs. `LAASeR_GateV2`
+(`clarify/algorithms/laaser_gate_v2.py`) keeps v1's validated atomic/concrete question template but
+replaces its self-judged GATE call with this execution-grounded check: the model proposes one
+alternative candidate for the single assumption it is least sure about, plus a handful of concrete
+probe inputs and the question it would ask if confirmed; both candidates are then actually run via
+`env.exec_code` (new technique for our own algorithms — base64-embedded source, separate namespaces,
+per-candidate and per-call `try/except` so a broken alternative can't take down the whole probe) and
+the question is only asked if at least one input shows a real, reproducible output difference. The
+DRAFT prompt also now names "a parameter the task text never mentions" as its own assumption
+category, targeting the still-open `Mbpp/229`/`Mbpp/559` signature gap.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6214 | 0.4667 | 63.33% | 46.67% |
+| r2 | 0.6828 | 0.5000 | 70.00% | 50.00% |
+| r3 | 0.6254 | 0.3333 | 63.33% | 33.33% |
+| **Mean ± stdev** | **0.6432 ± 0.0344** | **0.4333 ± 0.0882** | **65.55% ± 3.85pp** | **43.33% ± 8.82pp** |
+
+For reference: `LAASeR_Gate` (v1, 3 runs) TDS 0.6174 ± 0.0320, nDCG 0.9889 ± 0.0192, clarification
+rate 100.00% ± 0.00pp. Champion `LAASeR_Repair`, now with a 4th matching historical run folded into
+the same group by `scripts/compare_runs.py` (an earlier screening run from before the `-s42-r*`
+labeling convention, same dataset tag): TDS 0.7160 ± 0.0200, nDCG 0.0500 ± 0.0334, clarification
+rate 5.00% ± 3.34pp. `LAASeR_GateV2` does **not** beat the champion — all 3 of its runs sit below
+even the champion's single lowest individual run (0.6974) — but it is a real improvement over v1 on
+every axis that matters for the TDS/over-asking problem: TDS +0.026, and most importantly
+clarification rate **100.00% → 43.33%**, more than halved, while nDCG (0.4333) stays far above the
+champion's 0.0500.
+
+**Mechanism check**, same discipline as every prior challenger — `clarification_history` for
+`Mbpp/26, 229, 559, 759, 143` across all 3 runs:
+
+- `Mbpp/26`, `Mbpp/229`, `Mbpp/143`, `Mbpp/759`: **never asked in any of the 3 runs** — the
+  execution check consistently found no confirmed divergence (or the ALT+PROBE call itself said
+  `DONE`) and correctly suppressed the question. This is the mechanism working as designed: these
+  are exactly the kind of "the model feels a little unsure but it wouldn't change the output on the
+  inputs it tried" cases v1's self-judged gate couldn't tell apart from a real ambiguity. The cost
+  is that these 4 tasks still fail — correctly not asking doesn't make the underlying ambiguity
+  resolve itself, and 3 of the 4 (`Mbpp/26`, `143`, `759`) have no stated examples in the prompt
+  text for *any* mechanism (execution-grounded or not) to probe against; only asking (and getting a
+  good answer) was ever going to fix them.
+- `Mbpp/559`: asked in **all 3 runs**, every time about the empty-list edge case (not the actual
+  missing-parameter root cause from `docs/failure-analysis.md`), confirmed by a genuine divergence
+  each time, and still fails every time — same pattern as challenger #5: the execution check is
+  working exactly as intended (it only asked because the two candidates really did disagree on
+  `max_sub_array_sum([])`), it just isn't the question that would have fixed this specific task.
+- **Signature/arity hypothesis: still unsolved.** `Mbpp/229` never asked in any run, despite the
+  DRAFT prompt now explicitly naming "a parameter the text never mentions" as an assumption
+  category. The self-reported assumptions apparently still don't surface it as a candidate often
+  enough for the ALT+PROBE step to ever pick it, so the execution check never gets a chance to test
+  it either — the blind spot is one step upstream of where this challenger intervenes.
+
+**Net task-level diff** (r3 vs. the champion's matched smoke-42 run): `LAASeR_GateV2` newly loses
+`Mbpp/251, Mbpp/755, Mbpp/90, HumanEval/154` (all four pass under the champion) and newly gains
+`HumanEval/108` — net -3, smaller than v1's net -4 but still a net loss on this sample.
+
+**Cost note**: `env.exec_code` calls are not metered in `prompt_cost`/`clarification_cost` (confirmed
+by reading `clarify/env.py`), so the reported `avg_cost_usd` for this version undercounts its real
+compute cost relative to the champion and even relative to v1 — treat the dollar figures in
+`results/internal_leaderboard.md` as LLM-token cost only, not total compute.
+
+**Verdict**: `LAASeR_GateV2` does **not** beat the champion — kept, not deleted, logged as experiment
+six. Real, measured progress on the exact mechanism the team flagged as broken in challenger #5
+(over-asking cut by more than half, nDCG preserved far above the champion's), but the gap to the
+champion (0.073 TDS) still exceeds the combined stdev and holds across all 3 runs, and the
+signature/arity hypothesis the user specifically asked about remains open — it needs an intervention
+further upstream (making the DRAFT step's self-report actually surface "extra parameter" as a
+candidate more reliably) rather than a better verification step once it's already there. Natural
+next directions, not yet attempted: (a) tighten the DIVERGE check further by requiring the probe
+inputs to look like something the hidden tests would plausibly cover rather than any input that
+happens to disagree, since several of the task-level regressions are plausibly "real but
+hidden-test-irrelevant" divergences; (b) attack the signature gap at the DRAFT step directly (e.g.
+an explicit AST-based self-check of the drafted candidate's own parameter count against the task
+text, rather than relying on the model's free-text self-report to mention it).
+
+## 2026-10-10 — Fase 3 challenger seven (`LAASeR_GateV3`): multi-hypothesis discovery closes more of the gap, still short of the champion
+
+**Hypothesis**: re-reading the full CONTRA methodology (not just the abstract) at the user's
+request confirmed `LAASeR_GateV2` was a materially simplified version of the paper's actual
+pipeline — the paper discovers *many* candidate questions and qualifies all of them in parallel
+before selecting one, while v2 collapsed this to "the DRAFT step's one self-picked assumption →
+verify it." `scripts/analyze_failures.py`'s taxonomy confirmed this costs recall concretely: v2
+asked about the signature/arity bug class only 2/6 times vs. v1's 6/6. `LAASeR_GateV3`
+(`clarify/algorithms/laaser_gate_v3.py`) closes that gap: the ALT+PROBE call may return up to 3
+candidate hypotheses (one per uncertain assumption, most-to-least-uncertain order) in a single
+response, all qualified in one combined `env.exec_code` probe script, and the question asked
+belongs to the first candidate (in listed order) with a confirmed divergence — same cost shape as
+v2 (one extra LLM call, one extra `exec_code` call per round), more recall.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6494 | 0.6000 | 66.67% | 63.33% |
+| r2 | 0.6801 | 0.5667 | 70.00% | 60.00% |
+| r3 | 0.6828 | 0.6000 | 70.00% | 60.00% |
+| **Mean ± stdev** | **0.6708 ± 0.0186** | **0.5889 ± 0.0192** | **68.89% ± 1.92pp** | **61.11% ± 1.92pp** |
+
+A clear, monotonic progression across all three structural iterations on this smoke sample:
+
+| | TDS | nDCG | Clarification rate |
+|---|---|---|---|
+| Champion `LAASeR_Repair` (4 runs) | 0.7160 ± 0.0200 | 0.0500 ± 0.0334 | 5.00% ± 3.34pp |
+| v1 `LAASeR_Gate` | 0.6174 ± 0.0320 | 0.9889 ± 0.0192 | 100.00% ± 0.00pp |
+| v2 `LAASeR_GateV2` | 0.6432 ± 0.0344 | 0.4333 ± 0.0882 | 43.33% ± 8.82pp |
+| v3 `LAASeR_GateV3` | **0.6708 ± 0.0186** | 0.5889 ± 0.0192 | 61.11% ± 1.92pp |
+
+`LAASeR_GateV3` does **not** beat the champion — the gap (0.0452) still exceeds the combined
+stdev and holds across all 3 runs — but it is the closest any Gate variant has gotten, and the
+tightest inter-run stdev of the three (0.0186, vs. v2's 0.0344), suggesting the multi-hypothesis
+mechanism is also more *stable* than testing a single self-picked assumption.
+
+**Mechanism check** (`scripts/analyze_failures.py` across all 3 runs, 90 rows): the signature/arity
+class is asked about 3/6 times now, up from v2's 2/6 (still short of v1's 6/6) — multi-hypothesis
+testing does recover some of the lost recall, but not all of it, because of a deeper issue the user
+surfaced directly: for `Mbpp/229` specifically (prompt: *"Write a function to re-arrange the
+elements of the given array so that all negative elements appear before positive ones"*, no stub
+shown), checking the model's drafted candidate confirms it is a single-argument function
+(`def re_arrange_array(arr):`) and `Mbpp/229` **still never asks in any of the 3 runs** — not
+because the hypothesis loses out to competing candidates, but because the model's own
+self-reported `ASSUMPTIONS:` list apparently never contains "there might be an unmentioned second
+parameter" as a candidate for this task at all. **This is a real, structural ceiling on the whole
+self-report-based discovery approach**, not a tuning problem: the task text gives no textual signal
+whatsoever that a second parameter exists (confirmed directly against `data/mbpp/mbpp_original.jsonl`
+— the hidden test calls `re_arrange_array([-1, 2, -3, 4, 5, 6, -7, 8, 9], 9)`, an MBPP convention
+never implied by the prose). No amount of asking the model to introspect harder will produce an
+assumption it has no textual basis to generate in the first place.
+
+**Net task-level diff** (r3 vs. the champion's matched run): loses `Mbpp/755, Mbpp/90,
+HumanEval/154`, gains `HumanEval/108, HumanEval/55` — net -1, the smallest gap yet (v1: -4, v2: -3).
+`Mbpp/90` (the regression documented in the 2026-10-10 failure-analysis refresh) is still broken in
+2 of 3 runs, now with a *mix* of `AttributeError` and `TypeError`, and is now asked about in all 3
+runs without being fixed — asking happens, but not about the right thing, same pattern as `Mbpp/26`
+and `Mbpp/559` below.
+
+**Verdict**: `LAASeR_GateV3` does **not** beat the champion — kept, not deleted, logged as
+experiment seven. Real, monotonic progress across all three structural iterations (TDS 0.6174 →
+0.6432 → 0.6708), and the tightest variance yet. The next lever is not another tuning pass on
+self-report-based discovery — the `Mbpp/229` mechanism check shows that approach has a hard ceiling
+when the ambiguity leaves literally no textual trace. The proposed next step (not yet implemented):
+a **forced, structural signature-candidate** — generated unconditionally whenever a task shows no
+stub and operates on a sequence type, independent of whether the model's own self-report mentions
+it, verified by the same execution check as every other candidate, and kept as its own atomic
+question (explicitly *not* appended to any other question asked, to protect the validated
+ATOMICITY win from challenger #5/#6).
+
+## 2026-10-10 — Fase 3 challenger eight (`LAASeR_GateV4`): forced signature check fixes one task cleanly, but the trigger is too broad and surfaces a deeper dataset limit
+
+**Hypothesis**: `LAASeR_GateV3`'s mechanism check on `Mbpp/229` showed a hard ceiling for
+self-report-based discovery — the model's `ASSUMPTIONS:` list never contains "there might be an
+unmentioned second parameter" for that task, because the prompt text gives no textual basis to
+generate it. `LAASeR_GateV4` (`clarify/algorithms/laaser_gate_v4.py`) stops relying on self-report
+for this specific class: a deterministic, AST-based check (`_detect_unstated_arity_risk`) runs once
+right after the first successful draft — if the prompt shows no function stub at all and the
+drafted candidate's entry point takes exactly one argument used like a sequence (`len()`, indexing,
+iteration), a fixed, pre-written, atomic question is asked directly, no LLM call and no
+`env.exec_code` call needed for the check itself.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6841 | 0.5667 | 70.00% | 66.67% |
+| r2 | 0.6455 | 0.7333 | 66.67% | 76.67% |
+| r3 | 0.6455 | 0.7667 | 66.67% | 80.00% |
+| **Mean ± stdev** | **0.6584 ± 0.0223** | **0.6889 ± 0.1071** | **67.78% ± 1.92pp** | **74.45% ± 6.94pp** |
+
+For reference: v3 TDS 0.6708 ± 0.0186 (nDCG 0.5889, clarification rate 61.11%); champion TDS
+0.7160 ± 0.0200. `LAASeR_GateV4`'s mean TDS (0.6584) is slightly *below* v3's, within the combined
+stdev of the two (not a confirmed regression, but not a confirmed win either) — nDCG and
+clarification rate both rose substantially instead. Net task-level diff (r3 vs. the champion's
+matched run): loses `Mbpp/251, 755, 90`, `HumanEval/154`, gains `HumanEval/108, 55` — net -2,
+similar to v3's -1.
+
+**Mechanism check — one clean, confirmed win, and two findings explaining why it didn't move TDS more:**
+
+1. **Confirmed win: `Mbpp/559` is fixed cleanly, every run.** The forced question ("does
+   `max_sub_array_sum` take exactly one argument, or also a second — e.g. the length?") gets the
+   *correct* answer every time ("takes exactly two arguments: the array and its length"), the model
+   correctly redrafts `def max_sub_array_sum(arr, length):`, and the `TypeError` is gone for good —
+   the task now fails on a *different*, genuine logic bug (the classic Kadane's-algorithm
+   convention of returning 0 when every element is negative, unrelated to clarification at all).
+   This is the first time any challenger has actually closed the specific gap `Mbpp/229`/`Mbpp/559`
+   were chosen to represent.
+2. **The trigger fires far more broadly than the 2 tasks it targeted.** Checking every task where
+   the forced question appears across all 3 runs: `Mbpp/115, 760, 229, 143, 755, 105, 914, 559`
+   (and `Mbpp/759` in one run) — 7-8 tasks per run, most of which (`Mbpp/115, 760, 105, 914`) were
+   *already passing* under the champion and under v3, and get asked anyway because any
+   single-sequence-argument MBPP task with no stub shown matches the structural pattern, not just
+   the specific `(arr, n)`-convention ones. Each of those adds the turn-discount penalty for zero
+   benefit — this is almost certainly why TDS didn't move up alongside nDCG/clarification rate: the
+   `Mbpp/559` win is being offset by over-triggering elsewhere. The heuristic needs to be narrower
+   before this is a net win, not just mechanistically correct where it fires on the right task.
+3. **`Mbpp/229` still fails, and the reason is more interesting than a wrong guess by the model —
+   the simulated human doesn't actually know the answer either.** Checked the raw smoke-dataset
+   record for both `Mbpp/229` and `Mbpp/559` directly: **neither has a `clarifications` or
+   `reference_prompt` field** — only `prompt`, `entry_point`, `test_cases`. Per
+   `clarify/env.py`'s `_build_human_system_prompt`, that means the simulated human's "Hidden
+   Requirements" section literally renders as `[REDACTED]` for *both* tasks — the judge has no more
+   information than our own generating model does. Since both tasks are in the same situation yet
+   one gets a correct guess and the other doesn't, the real explanation is that the judge LLM is
+   also just guessing from its own training-data familiarity with the underlying classic problem:
+   "maximum sum contiguous subarray" (Kadane's algorithm) is an extremely common tutorial/LeetCode
+   problem usually taught with an `(arr, n)` signature, so the judge's guess happens to land on the
+   real convention; "re-arrange array so negatives come before positives" is less canonical, and the
+   judge's guess lands on the same "obvious" one-argument reading our model also makes. **For these
+   specific tasks, asking doesn't resolve an information asymmetry — there isn't one.** Both sides
+   are guessing from the same kind of prior knowledge, and whether asking helps is a coin flip tied
+   to how textbook-famous the specific problem happens to be. This is a dataset-authoring gap (a
+   missing `clarifications` field for these records), not something fixable from our side of the
+   algorithm.
+
+**Verdict**: `LAASeR_GateV4` does **not** confirm a win over v3 or the champion — kept, not
+deleted, logged as experiment eight. Real, demonstrated proof that the forced-check *mechanism*
+works exactly as designed when it matters (`Mbpp/559`), but the current trigger condition (any
+stub-less single-sequence-argument function) is too broad and the resulting over-asking cost
+roughly cancels the gain on this sample. Next step, not yet attempted: narrow the trigger (e.g.
+only fire when the candidate's single-argument usage pattern specifically resembles the
+`(collection, count)` convention gap rather than any sequence usage at all) before concluding
+whether the forced-check idea nets positive.
+
+**2026-10-10 follow-up — the `--split val` run (770 tasks) finished, and confirms the over-asking
+concern far more sharply than smoke suggested:**
+
+| | TDS | nDCG | Clarification rate | Over-asking rate |
+|---|---|---|---|---|
+| Champion `LAASeR_Repair` (val) | 0.5643 | 0.2065 | 25.19% | 9.84% |
+| `LAASeRAlgorithm` (val) | 0.5693 | 0.2117 | 25.45% | 10.36% |
+| **`LAASeR_GateV4` (val, 770 tasks)** | 0.5756 | **0.5532** | **75.32%** | **73.06%** |
+
+The over-asking rate is **~7x worse than the champion's at full val scale** (73.06% vs. ~10%),
+despite smoke showing 0.00% over-asking at a nearly identical clarification rate (74.45% smoke vs.
+75.32% val — the *rate* of asking generalized almost exactly; the *appropriateness* of asking did
+not). This confirms, with real scale data rather than smoke-sample speculation, exactly the
+"trigger is too broad" concern above: "exactly one sequence-like argument, no stub shown" is
+evidently far more common across the full 770-task val set than in the 30-task smoke sample, and
+at that scale the vast majority of matches are tasks already fully determined by context — the
+forced check fires on them indiscriminately. TDS itself is not disastrous (0.5756, nominally even a
+hair above the champion's val numbers — the per-turn discount isn't severe enough to tank it, and
+nDCG benefits heavily from the sheer volume of extra, mostly decent-quality questions), but the
+over-asking number alone is reason enough to call this version not usable as-is: **the forced
+structural trigger must not ship without narrowing first.** This is the strongest evidence yet, in
+this whole Fase 3 line, for the project's standing lesson that smoke-sample screening alone can
+hide how a change behaves at the scale that actually matters, and it hardens the next-step priority
+named above — narrow the trigger condition — into a precondition, not an optimization, before any
+further use of the forced-check idea.
+
+## 2026-10-11/12 — Cross-cutting finding: clarification rate, not mechanism sophistication, is what separates every challenger from the champion
+
+After 10 challengers across every mechanism family tried (self-reported assumptions, execution-
+verified single/multi-hypothesis divergence checks, forced structural triggers, diverse sampling,
+universal self-check), none has beaten the champion `LAASeR_Repair`. Sorting every challenger's
+smoke-42 mean by clarification rate instead of by which mechanism produced it reveals why in one
+table:
+
+| Clarification rate group | Algorithm | TDS |
+|---|---|---|
+| **Low (≤16%)** | Champion `LAASeR_Repair` (5.00%) | **0.7160** |
+| | `LAASeR_RepairV2` (3.33%) | 0.6778 |
+| | `LAASeR_ConcreteQuestion` (10.00%) | 0.6876 |
+| | `LAASeR_Signature` (15.56%) | 0.6640 |
+| | `LAASeR_EntryTrust` (6.67%) | 0.6556 |
+| | `LAASeRAlgorithm` (3.33%) | 0.6333 |
+| **High (≥43%)** | `LAASeR_GateV6` (53.33%) | 0.6739 |
+| | `LAASeR_GateV3` (61.11%) | 0.6708 |
+| | `LAASeR_GateV4` (74.45%) | 0.6584 |
+| | `LAASeR_GateV2` (43.33%) | 0.6432 |
+| | `LAASeR_GateV7` (66.67%) | 0.6179 |
+| | `LAASeR_Gate` / v1 (100.00%) | 0.6082 |
+
+Every variant in the low-ask group sits close to the champion (within ~0.03-0.08 TDS); every
+variant in the high-ask group sits 0.04-0.11 below it, **regardless of which "when to ask"
+mechanism produced that ask rate** — self-report (v1), execution-verified single-hypothesis (v2),
+execution-verified multi-hypothesis (v3), forced structural trigger (v4), diverse sampling (v7),
+all land in the same high-ask, lower-TDS band. The single best-performing non-champion result
+(`LAASeR_ConcreteQuestion`, gap only 0.028) is specifically the one challenger that never touched
+*whether* to ask at all -- it only improved the wording of the question on the rare occasions the
+champion's own low-ask decision logic already fires.
+
+**Reading**: every "when to ask" mechanism tried, however sophisticated or well-verified by
+execution, has consistently pushed the clarification rate up into the 43-100% range, and the
+TDS turn-discount penalty applied across that many more tasks is not being offset by a
+correspondingly large Pass@1 gain (Pass@1 has stayed flat or dropped across every Gate variant,
+never clearly exceeding the champion's). The lever that actually matters for TDS is keeping the
+ask rate low, not how well-verified each individual question is. nDCG (the tie-breaker) has been
+solved repeatedly and convincingly (atomic/concrete questions reliably score QUALITY=3) -- it is
+specifically the ranking metric, TDS, that no mechanism has moved in the right direction, because
+every mechanism's side effect is asking more, not asking better-targeted.
+
+**Next step implied by this table, not yet tried**: stop building new "when to ask" logic, and
+instead combine only the pieces already shown to be *either neutral on ask rate or purely
+additive*: the champion's own low-ask decision prompt, unchanged, so the ask rate stays low;
+`LAASeR_ConcreteQuestion`'s atomic/concrete wording for the rare cases it does ask; and
+`LAASeR_GateV7`'s self-check-and-repair mechanism (which never asks a question at all, only
+repairs) -- fixed to validate that each self-stated example's argument count matches the
+candidate's own detected signature before trusting it, closing the corruption risk found in
+challenger #11.
+
+## 2026-10-12 — Fase 3 challenger twelve (`LAASeR_GateV8`): closest TDS yet, cheapest, best nDCG among near-champion variants
+
+**Hypothesis**: directly acting on the cross-cutting finding above. `LAASeR_GateV8`
+(`clarify/algorithms/laaser_gate_v8.py`) adds **no new when-to-ask mechanism** — the single-call
+decide-to-ask-or-code structure is the champion's own, unverified, exactly as rarely-triggered.
+Only two ask-rate-neutral/purely-additive pieces are stacked: `laaser_concretequestion.py`'s
+atomic-example nudge (for the rare cases it does ask) and `laaser_gate_v7.py`'s self-check-and-
+repair step (never asks, only repairs when the model's own stated examples disagree with its own
+code), fixed with the arg-count guard challenger #11's post-mortem called for.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate | Cost/task |
+|---|---|---|---|---|---|
+| r1 | 0.6627 | 0.1667 | 66.67% | 20.00% | $0.000785 |
+| r2 | 0.6960 | 0.2333 | 70.00% | 23.33% | $0.000703 |
+| r3 | 0.6974 | 0.1333 | 70.00% | 20.00% | $0.000723 |
+| **Mean ± stdev** | **0.6854 ± 0.0196** | **0.1778 ± 0.0509** | **68.89% ± 1.92pp** | **21.11% ± 1.92pp** | **$0.000737** |
+
+Clarification rate (21.11%) lands roughly in between the champion's (5.00%) and
+`LAASeR_ConcreteQuestion`'s (10.00%) — higher than hoped, but far below any execution-verified or
+self-report Gate variant (43-100%). `LAASeR_GateV8` does **not** beat the champion (gap 0.0306,
+within the combined stdev) but is tied with `LAASeR_ConcreteQuestion` (gap 0.0284) as the closest
+non-champion result measured so far, while roughly **doubling its nDCG** (0.1778 vs 0.0889) and
+costing **less than any other challenger** — $0.000737/task, below even most of the champion's own
+historical runs, since the self-check step costs nothing extra whenever the model's stated
+examples already pass (the common case) and the architecture has no second LLM call for a
+verification gate at all. Net task-level diff (r3 vs. the champion's matched run): loses
+`Mbpp/755, HumanEval/154`, gains `HumanEval/108` — net -1, tied with `LAASeR_GateV3` for the
+smallest gap of any challenger.
+
+**Verdict**: `LAASeR_GateV8` does **not** confirm a win over the champion — kept, not deleted,
+logged as experiment twelve. It is, on balance, the strongest non-champion candidate produced in
+this entire Fase 3 line: closest-or-tied TDS, best nDCG among the near-champion group, and by far
+the cheapest. The clarification rate (21%) is still above the champion's own (5%) and above
+`LAASeR_ConcreteQuestion`'s (10%), suggesting the EXAMPLES-writing step itself may be nudging the
+model toward noticing (and asking about) more assumptions than the champion's plain prompt does —
+worth isolating in a future experiment (A/B the EXAMPLES addition alone, without the
+ConcreteQuestion wording change, to see which of the two stacked pieces is responsible for the
+higher-than-ConcreteQuestion ask rate). Before any further tuning, this candidate should go through
+the Fase 5 anti-overfitting check (second seed + `--split val`) that `LAASeR_Repair`'s own
+smoke-vs-val reversal showed is not optional.
+
+## 2026-10-11 — Fase 3 challenger eleven (`LAASeR_GateV7`): universal self-check generalizes correctly, but introduces real instability
+
+**Hypothesis**: "code ran but produced the wrong output" is the single largest failure category
+across every challenger measured (55/104 in `scripts/analyze_failures.py`'s taxonomy). An earlier
+draft of this idea parsed literal doctests out of the task prompt; the team correctly flagged it
+as too narrow (most MBPP prompts have none). `LAASeR_GateV7` generalizes it: the DRAFT step states
+2-3 concrete `(arguments, expected_output)` pairs it believes its OWN implementation must satisfy,
+for every task regardless of whether the prompt gives examples. The candidate is run against its
+own stated examples via `env.exec_code`; a mismatch triggers one targeted repair call, never a
+clarifying question. Whatever results proceeds unchanged into `LAASeR_GateV3`'s ALT_PROBE step.
+
+**A real implementation bug was found and fixed before trusting any measurement**: `candidate` was
+only assigned the self-check step's *result*, so any exception raised inside it (confirmed:
+transient `env.exec_code` failures happen in practice) discarded the already-valid, already-parsed
+draft and fell through to `""`. First screening pair (pre-fix) showed TDS 0.7148 then 0.5148 — the
+second run's failures were HumanEval/50, 56, and others with a literally empty `prompt_result`
+despite nothing wrong with the task. Root-caused directly, fixed by committing `candidate = code`
+before the risky call, with a dedicated regression test (confirmed red before, green after).
+
+**3-run result, post-fix** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6508 | 0.7000 | 66.67% | 70.00% |
+| r2 | 0.5547 | 0.5667 | 56.67% | 60.00% |
+| r3 | 0.6481 | 0.7000 | 66.67% | 70.00% |
+| **Mean ± stdev** | **0.6179 ± 0.0547** | **0.6556 ± 0.0770** | **63.34% ± 5.77pp** | **66.67% ± 5.77pp** |
+
+`LAASeR_GateV7` does **not** beat `LAASeR_GateV3` (0.6708 ± 0.0186) even after the fix — and its
+inter-run stdev (0.0547) is nearly 3x v3's, a real stability regression, not just a lower mean.
+
+**Mechanism check — the fix was necessary but not sufficient; a second, more fundamental risk was
+found in the still-standing r2 (post-fix) run**: `Mbpp/115` (`empty_dit`, "check whether all
+dictionaries in a list are empty") failed with the candidate defining
+`def empty_dit(*dicts):` — a variadic signature — instead of the correct
+`def empty_dit(lst):` seen in r1 and r3 of this same experiment (and in every other challenger's
+runs). The most likely mechanism: the model's own stated `EXAMPLES:` entry packed its arguments
+inconsistently with its own function signature (e.g. thinking of "three separate dicts" rather
+than "one list containing three dicts"), the self-check probe then calls the *correct* original
+candidate with the *wrong* arity, reports a spurious mismatch, and the resulting repair "fixes" an
+already-correct implementation to match the self-check's own miscounted expectation. This is a
+real, structural risk of the design that review alone caught in this one instance but likely
+explains some of the extra variance — the self-check can occasionally corrupt correct code when
+the model's own bookkeeping of "how my examples should be called" disagrees with its own function
+signature, independent of whether the original implementation was right.
+
+**Verdict**: `LAASeR_GateV7` does **not** beat the champion or `LAASeR_GateV3` — kept, not deleted,
+logged as experiment eleven. The underlying idea (universal self-verification, no prompt-format
+dependency) remains sound and more general than the doctest-only draft it replaced, but this
+implementation has two now-documented reliability costs: a one-line candidate-discarding bug
+(fixed) and a structural risk of self-check-induced corruption from arg-packing mismatches between
+the model's own examples and its own code (not yet fixed). Before trying this family again, the
+self-check step should validate that each stated example's argument-tuple length matches the
+candidate's own detected parameter count (cheap, host-side, via `ast`) and discard any example that
+doesn't, rather than trusting the model to have packed its own arguments consistently.
+
+## 2026-10-10/11 — A narrower trigger was proposed and withdrawn before measurement (overfitting risk)
+
+A follow-up candidate, `clarify/algorithms/laaser_gate_v5.py`, added one condition to v4's forced
+check: require the literal word "array" in the prompt, on top of v4's existing no-stub +
+single-sequence-argument check. Checking the real hidden tests behind every task v4's broader
+trigger fired on in the smoke-42 runs showed "array" cleanly separates the true positives
+(`Mbpp/229`, `559`, `760`, all genuinely needing a second argument) from the false positives
+(`Mbpp/105`, `115`, `143`, `759`, `914`, all genuinely single-argument) in that specific data.
+
+**The user flagged, correctly, that this is overfitting** even though it names no task ID: the
+keyword was derived by looking at outcomes on exactly 8 smoke-sample tasks and picking whatever
+separated them, which is the same failure mode as tuning on a validation set — and we had just
+watched an even more generic-looking heuristic (v4's) go from 0.00% to 73.06% over-asking between
+smoke and val. There is no val-scale evidence "array" generalizes, only a retrospective fit to 8
+examples. Written up here for the record per the mission's "report failures too" rule; the file is
+kept on disk, uncommitted and unmeasured, explicitly not to be used without the team's sign-off.
+Broader conclusion: the forced-structural-trigger line (challengers #8 and this one) hit a dead
+end given the information available to us -- `Mbpp/229`-class ambiguity has no textual signal to
+key a trigger off safely, and any attempt to hand-craft one risks re-deriving the smoke sample's
+own idiosyncrasies rather than a real pattern.
+
+## 2026-10-10/11 — Fase 3 challenger nine (`LAASeR_GateV6`): diverse-sampling discovery, does not clearly beat v3 despite ~2x the cost
+
+**Hypothesis**: the team proposed addressing `LAASeR_GateV3`'s single-draft discovery bottleneck
+with "three agents at very different temperatures, union their assumptions, a fourth implements."
+Checked `clarify/env.py`/`clarify/llm.py` directly: `env.llm` fixes temperature at environment
+construction (set once from the competition's `--temperature` flag) with no per-call override, so
+literally-different-temperatures-per-call isn't implementable through the SDK. The underlying
+mechanism (self-consistency / diverse sampling to improve recall) still is, since repeated calls
+at the harness's own non-zero temperature already produce materially different samples.
+`LAASeR_GateV6` (`clarify/algorithms/laaser_gate_v6.py`) makes three independent DRAFT calls per
+round (each with its own small repair loop), unions their `ASSUMPTIONS:` lists, and feeds that
+richer pool into v3's unchanged execution-verified multi-hypothesis ALT_PROBE mechanism. The first
+draft that parses successfully is the round's base candidate; an unparseable draft is dropped
+rather than failing the round.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6521 | 0.5000 | 66.67% | 53.33% |
+| r2 | 0.7174 | 0.4000 | 73.33% | 53.33% |
+| r3 | 0.6521 | 0.4333 | 66.67% | 53.33% |
+| **Mean ± stdev** | **0.6739 ± 0.0377** | **0.4444 ± 0.0509** | **68.89% ± 3.85pp** | **53.33% ± 0.00pp** |
+
+A separate single run on a *different* 60-task smoke sample (not the fixed smoke-42) had shown a
+striking TDS of 0.7288 — the smoke-42 confirmation shows that number does not hold up as a
+reliable estimate; it was one favorable sample, not a signal. On the comparable smoke-42 measure,
+v6's mean (0.6739 ± 0.0377) is statistically indistinguishable from v3's (0.6708 ± 0.0186) — the
+gap is smaller than v6's own stdev — despite v6 costing roughly 2x v3's LLM calls (three DRAFT
+calls instead of one). The extra discovery diversity is not currently paying for itself.
+
+**Mechanism check** (`Mbpp/26, 229, 559, 759, 143`, all 3 runs): `Mbpp/229` is asked about in 1 of
+3 runs now (0 of 3 under v3) — some real recall improvement from the diverse sampling, as
+hypothesized. `Mbpp/26` is still never asked in any run (0/3, same as every prior challenger).
+None of the 5 ever actually passes regardless of whether asked, for the same reasons documented
+under challengers #6-#8 (wrong sub-question, or the simulated judge's own guess being wrong when
+no `clarifications` field exists). Net task-level diff (r3 vs. the champion's matched run): loses
+`Mbpp/755, 90`, `HumanEval/154`, gains `HumanEval/108` — net -2, in the same range as v3 (-1) and
+v4 (-2).
+
+**Verdict**: `LAASeR_GateV6` does **not** confirm a win over `LAASeR_GateV3` — kept, not deleted,
+logged as experiment nine. The diverse-sampling mechanism does what it was designed to do (modest,
+real recall improvement on the one case checked), but at roughly double the cost for a result
+statistically indistinguishable from the cheaper v3 on this sample. Given the champion `LAASeR_Repair`
+(0.7160 ± 0.0200) still sits above every Gate-family variant tried so far (v1 through v6) on this
+same smoke-42 measure, and no single variant has yet produced a confirmed, held win, the next
+sensible step is to validate whichever Gate variant looks best (v3, the cheapest of the group with
+a comparable mean) against a second seed and `--split val` before investing in further Gate-family
+iterations — per the standing lesson from `LAASeR_Repair`'s own smoke-vs-val reversal, no further
+smoke-only tuning should be trusted without that check.
