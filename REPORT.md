@@ -723,6 +723,57 @@ hide how a change behaves at the scale that actually matters, and it hardens the
 named above — narrow the trigger condition — into a precondition, not an optimization, before any
 further use of the forced-check idea.
 
+## 2026-10-11/12 — Cross-cutting finding: clarification rate, not mechanism sophistication, is what separates every challenger from the champion
+
+After 10 challengers across every mechanism family tried (self-reported assumptions, execution-
+verified single/multi-hypothesis divergence checks, forced structural triggers, diverse sampling,
+universal self-check), none has beaten the champion `LAASeR_Repair`. Sorting every challenger's
+smoke-42 mean by clarification rate instead of by which mechanism produced it reveals why in one
+table:
+
+| Clarification rate group | Algorithm | TDS |
+|---|---|---|
+| **Low (≤16%)** | Champion `LAASeR_Repair` (5.00%) | **0.7160** |
+| | `LAASeR_RepairV2` (3.33%) | 0.6778 |
+| | `LAASeR_ConcreteQuestion` (10.00%) | 0.6876 |
+| | `LAASeR_Signature` (15.56%) | 0.6640 |
+| | `LAASeR_EntryTrust` (6.67%) | 0.6556 |
+| | `LAASeRAlgorithm` (3.33%) | 0.6333 |
+| **High (≥43%)** | `LAASeR_GateV6` (53.33%) | 0.6739 |
+| | `LAASeR_GateV3` (61.11%) | 0.6708 |
+| | `LAASeR_GateV4` (74.45%) | 0.6584 |
+| | `LAASeR_GateV2` (43.33%) | 0.6432 |
+| | `LAASeR_GateV7` (66.67%) | 0.6179 |
+| | `LAASeR_Gate` / v1 (100.00%) | 0.6082 |
+
+Every variant in the low-ask group sits close to the champion (within ~0.03-0.08 TDS); every
+variant in the high-ask group sits 0.04-0.11 below it, **regardless of which "when to ask"
+mechanism produced that ask rate** — self-report (v1), execution-verified single-hypothesis (v2),
+execution-verified multi-hypothesis (v3), forced structural trigger (v4), diverse sampling (v7),
+all land in the same high-ask, lower-TDS band. The single best-performing non-champion result
+(`LAASeR_ConcreteQuestion`, gap only 0.028) is specifically the one challenger that never touched
+*whether* to ask at all -- it only improved the wording of the question on the rare occasions the
+champion's own low-ask decision logic already fires.
+
+**Reading**: every "when to ask" mechanism tried, however sophisticated or well-verified by
+execution, has consistently pushed the clarification rate up into the 43-100% range, and the
+TDS turn-discount penalty applied across that many more tasks is not being offset by a
+correspondingly large Pass@1 gain (Pass@1 has stayed flat or dropped across every Gate variant,
+never clearly exceeding the champion's). The lever that actually matters for TDS is keeping the
+ask rate low, not how well-verified each individual question is. nDCG (the tie-breaker) has been
+solved repeatedly and convincingly (atomic/concrete questions reliably score QUALITY=3) -- it is
+specifically the ranking metric, TDS, that no mechanism has moved in the right direction, because
+every mechanism's side effect is asking more, not asking better-targeted.
+
+**Next step implied by this table, not yet tried**: stop building new "when to ask" logic, and
+instead combine only the pieces already shown to be *either neutral on ask rate or purely
+additive*: the champion's own low-ask decision prompt, unchanged, so the ask rate stays low;
+`LAASeR_ConcreteQuestion`'s atomic/concrete wording for the rare cases it does ask; and
+`LAASeR_GateV7`'s self-check-and-repair mechanism (which never asks a question at all, only
+repairs) -- fixed to validate that each self-stated example's argument count matches the
+candidate's own detected signature before trusting it, closing the corruption risk found in
+challenger #11.
+
 ## 2026-10-11 — Fase 3 challenger eleven (`LAASeR_GateV7`): universal self-check generalizes correctly, but introduces real instability
 
 **Hypothesis**: "code ran but produced the wrong output" is the single largest failure category
