@@ -13,6 +13,17 @@ Only task_id + prompt are written (same shape as the existing
 data/mbpp_demo_test.jsonl) -- preprocess_benchmark re-derives everything else
 (entry_point, hidden tests, ...) from evalplus's own canonical data, keyed by
 task_id.
+
+`--source original` (default) samples only the unperturbed `*_original.jsonl`
+files. Those tasks are NOT representative of the leaderboard: none of them get
+hidden requirements from data/clarifications.jsonl, so the simulated human falls
+back to the reference prompt and asking a question can almost never pay off.
+`--source val` instead samples (task_id, prompt) rows of the official validation
+split across every perturbation file, exactly as `--split val` loads them, so
+generate_responses.py attaches each row's real hidden requirements and the
+sample keeps val's mix of clean (~25%) and needs-clarification (~75%) tasks.
+One random perturbation is kept per task_id (val has 60 Mbpp and 30 HumanEval
+ids), since a single dataset file cannot hold two rows with the same task_id.
 """
 
 from __future__ import annotations
@@ -32,10 +43,31 @@ CANONICAL_FILE = {
     "HumanEval": REPO_ROOT / "data" / "humaneval" / "humaneval_original.jsonl",
 }
 
+# Every perturbation file for each class, as clarify.data.load_split reads them.
+VARIANT_DIR = {
+    "Mbpp": REPO_ROOT / "data" / "mbpp",
+    "HumanEval": REPO_ROOT / "data" / "humaneval",
+}
+
+VAL_SPLIT = REPO_ROOT / "data" / "splits" / "validation.txt"
+
 
 def _load_rows(path: Path) -> list[dict]:
     with path.open() as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+def _val_rows(class_name: str) -> list[dict]:
+    """All validation-split rows of one class, across every perturbation file, deduplicated."""
+    with VAL_SPLIT.open() as f:
+        val_ids = {line.strip() for line in f if line.strip()}
+
+    rows: dict[tuple[str, str], dict] = {}
+    for path in sorted(VARIANT_DIR[class_name].glob("*.jsonl")):
+        for row in _load_rows(path):
+            if row["task_id"] in val_ids and row.get("prompt"):
+                rows.setdefault((row["task_id"], row["prompt"]), row)
+    return list(rows.values())
 
 
 def main() -> None:
@@ -46,6 +78,12 @@ def main() -> None:
         "--seed", type=int, default=None, help="Omit for a fresh random sample every call"
     )
     ap.add_argument("--out-dir", default="data/smoke")
+    ap.add_argument(
+        "--source",
+        choices=["original", "val"],
+        default="original",
+        help="original: unperturbed tasks only; val: the validation split's real task mix",
+    )
     args = ap.parse_args()
 
     classes = [c.strip() for c in args.classes.split(",") if c.strip()]
@@ -64,7 +102,14 @@ def main() -> None:
 
     written_paths: list[str] = []
     for i, class_name in enumerate(classes):
-        rows = _load_rows(CANONICAL_FILE[class_name])
+        if args.source == "val":
+            # preprocess_benchmark keys a file's tasks by task_id, so two variants of the same
+            # task in one file would silently collapse into one: keep one random variant per id.
+            rows = _val_rows(class_name)
+            rng.shuffle(rows)
+            rows = list({row["task_id"]: row for row in reversed(rows)}.values())
+        else:
+            rows = _load_rows(CANONICAL_FILE[class_name])
         k = min(per_class + (1 if i < remainder else 0), len(rows))
         sample = rng.sample(rows, k)
 
@@ -78,6 +123,11 @@ def main() -> None:
                 # whatever fields our row already has instead of merging them in
                 # from evalplus's canonical dataset -- entry_point must already
                 # be present or init_evalplus_evaluator() raises KeyError.
+                if args.source == "val":
+                    # Keep the row exactly as load_split sees it, so its prompt matches
+                    # data/clarifications.jsonl and the real hidden requirements attach.
+                    f.write(json.dumps(row) + "\n")
+                    continue
                 out_row = {"task_id": row["task_id"], "prompt": row["prompt"]}
                 if "entry_point" in row:
                     out_row["entry_point"] = row["entry_point"]

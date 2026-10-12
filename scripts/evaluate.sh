@@ -25,6 +25,7 @@ SMOKE_SIZE=60
 SMOKE_CLASSES="Mbpp,HumanEval"
 SMOKE_RANDOM=0
 SMOKE_SEED=""
+SMOKE_SOURCE="original"
 
 usage() {
   cat <<'EOF'
@@ -47,6 +48,9 @@ this is now the default mode instead of the old fixed 30-task Mbpp-only demo):
   --smoke-classes LIST    Comma-separated benchmark classes to sample from (default: Mbpp,HumanEval)
   --smoke-random          Ignore --smoke-size and randomly pick 30 or 60 for this run
   --smoke-seed N          Seed the task sample for reproducibility (default: fresh random sample)
+  --smoke-source SRC      original (default): unperturbed tasks only, no hidden requirements;
+                          val: real validation-split mix (~75% need clarification, hidden
+                          requirements attached) -- use this to judge anything about asking
 
 Credentials: sources .env (gitignored) if present, so ANTHROPIC_API_KEY/ANTHROPIC_API_BASE
 point at whatever is configured there before falling back to the current shell environment.
@@ -71,6 +75,7 @@ while [[ $# -gt 0 ]]; do
     --smoke-classes) SMOKE_CLASSES="$2"; shift 2 ;;
     --smoke-random) SMOKE_RANDOM=1; shift 1 ;;
     --smoke-seed) SMOKE_SEED="$2"; shift 2 ;;
+    --smoke-source) SMOKE_SOURCE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
   esac
@@ -117,14 +122,18 @@ if [[ -z "$SPLIT" && -z "$DATASET_PATH" ]]; then
 
   SMOKE_DATA_DIR="$RUN_DIR/smoke_data"
   SMOKE_CMD=(uv run python scripts/make_smoke_dataset.py --n "$SMOKE_SIZE" \
-    --classes "$SMOKE_CLASSES" --out-dir "$SMOKE_DATA_DIR")
+    --classes "$SMOKE_CLASSES" --out-dir "$SMOKE_DATA_DIR" --source "$SMOKE_SOURCE")
   if [[ -n "$SMOKE_SEED" ]]; then
     SMOKE_CMD+=(--seed "$SMOKE_SEED")
   fi
   echo "== 2/4: building smoke dataset (${SMOKE_SIZE} tasks across ${SMOKE_CLASSES}) =="
   echo "   ${SMOKE_CMD[*]}"
   CLASS_DATASET_PATHS=($("${SMOKE_CMD[@]}"))
-  DATASET_PATH="smoke(classes=${SMOKE_CLASSES},n=${SMOKE_SIZE})"
+  if [[ "$SMOKE_SOURCE" == "original" ]]; then
+    DATASET_PATH="smoke(classes=${SMOKE_CLASSES},n=${SMOKE_SIZE})"
+  else
+    DATASET_PATH="smoke(source=${SMOKE_SOURCE},classes=${SMOKE_CLASSES},n=${SMOKE_SIZE})"
+  fi
 
   echo "== 2/4: generating responses (per class) =="
   for CLASS_DATASET_PATH in "${CLASS_DATASET_PATHS[@]}"; do
