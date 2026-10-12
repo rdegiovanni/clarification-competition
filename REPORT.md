@@ -996,6 +996,29 @@ the project's usual 3-run minimum at this (expensive, 770-task) scale; a third f
 continued scrutiny of the clean-task over-asking cost, is the natural next step before any
 promotion decision.
 
+**2026-10-12 third full-val confirmation — now meets the project's 3-run minimum, at full scale:**
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate | Over-asking rate |
+|---|---|---|---|---|---|
+| r1 | 0.6834 | 0.8364 | 71.04% | 96.62% | 90.67% |
+| r2 | 0.7021 | 0.8649 | 72.99% | 96.75% | 92.23% |
+| r3 | 0.7083 | 0.8558 | 73.64% | 96.75% | 90.67% |
+| **Mean ± stdev** | **0.6979 ± 0.0106** | **0.8524 ± 0.0121** | **72.56% ± 1.08pp** | **96.71% ± 0.06pp** | **91.19% ± 0.72pp** |
+
+Three full `--split val` runs, the project's own standing bar for trusting a result, all at the
+expensive 770-task scale rather than a sample. All three individually beat the public leader
+`GatedClarification`'s fixed 0.640 TDS (`Pinpoint_r1` 0.683, `r2` 0.703, `r3` 0.709), and the gap
+(mean 0.6979 vs. 0.640 -- a 0.058 margin) is more than 5x this result's own run-to-run stdev
+(0.0106). By hidden-requirement count, `LAASeR_Pinpoint` beats the leader in every run at every
+bucket from 1 requirement up (e.g. 2 hidden requirements: 0.63/0.62/0.65 across the 3 runs vs. the
+leader's fixed 0.53), and is statistically tied with it on the 0-requirement "clean" bucket
+(0.92/0.94/0.93 vs. the leader's 0.93 -- one run even edges it there). This is the first result in
+the project's entire history to clear the project's own 3-run bar *at full val scale* rather than
+on a 30- or 60-task sample, and it clears the project's stated goal (beat the public leader's TDS)
+with margin to spare in all three runs. The team has deliberately not yet promoted this to
+`PR_SUBMISSION_DRAFT.md` or the champion slot in `CLAUDE.md` -- that remains an explicit team
+decision, not an automatic consequence of this measurement.
+
 ## 2026-10-11 — Fase 3 challenger eleven (`LAASeR_GateV7`): universal self-check generalizes correctly, but introduces real instability
 
 **Hypothesis**: "code ran but produced the wrong output" is the single largest failure category
