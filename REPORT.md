@@ -774,6 +774,49 @@ repairs) -- fixed to validate that each self-stated example's argument count mat
 candidate's own detected signature before trusting it, closing the corruption risk found in
 challenger #11.
 
+## 2026-10-12 — Fase 3 challenger twelve (`LAASeR_GateV8`): closest TDS yet, cheapest, best nDCG among near-champion variants
+
+**Hypothesis**: directly acting on the cross-cutting finding above. `LAASeR_GateV8`
+(`clarify/algorithms/laaser_gate_v8.py`) adds **no new when-to-ask mechanism** — the single-call
+decide-to-ask-or-code structure is the champion's own, unverified, exactly as rarely-triggered.
+Only two ask-rate-neutral/purely-additive pieces are stacked: `laaser_concretequestion.py`'s
+atomic-example nudge (for the rare cases it does ask) and `laaser_gate_v7.py`'s self-check-and-
+repair step (never asks, only repairs when the model's own stated examples disagree with its own
+code), fixed with the arg-count guard challenger #11's post-mortem called for.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate | Cost/task |
+|---|---|---|---|---|---|
+| r1 | 0.6627 | 0.1667 | 66.67% | 20.00% | $0.000785 |
+| r2 | 0.6960 | 0.2333 | 70.00% | 23.33% | $0.000703 |
+| r3 | 0.6974 | 0.1333 | 70.00% | 20.00% | $0.000723 |
+| **Mean ± stdev** | **0.6854 ± 0.0196** | **0.1778 ± 0.0509** | **68.89% ± 1.92pp** | **21.11% ± 1.92pp** | **$0.000737** |
+
+Clarification rate (21.11%) lands roughly in between the champion's (5.00%) and
+`LAASeR_ConcreteQuestion`'s (10.00%) — higher than hoped, but far below any execution-verified or
+self-report Gate variant (43-100%). `LAASeR_GateV8` does **not** beat the champion (gap 0.0306,
+within the combined stdev) but is tied with `LAASeR_ConcreteQuestion` (gap 0.0284) as the closest
+non-champion result measured so far, while roughly **doubling its nDCG** (0.1778 vs 0.0889) and
+costing **less than any other challenger** — $0.000737/task, below even most of the champion's own
+historical runs, since the self-check step costs nothing extra whenever the model's stated
+examples already pass (the common case) and the architecture has no second LLM call for a
+verification gate at all. Net task-level diff (r3 vs. the champion's matched run): loses
+`Mbpp/755, HumanEval/154`, gains `HumanEval/108` — net -1, tied with `LAASeR_GateV3` for the
+smallest gap of any challenger.
+
+**Verdict**: `LAASeR_GateV8` does **not** confirm a win over the champion — kept, not deleted,
+logged as experiment twelve. It is, on balance, the strongest non-champion candidate produced in
+this entire Fase 3 line: closest-or-tied TDS, best nDCG among the near-champion group, and by far
+the cheapest. The clarification rate (21%) is still above the champion's own (5%) and above
+`LAASeR_ConcreteQuestion`'s (10%), suggesting the EXAMPLES-writing step itself may be nudging the
+model toward noticing (and asking about) more assumptions than the champion's plain prompt does —
+worth isolating in a future experiment (A/B the EXAMPLES addition alone, without the
+ConcreteQuestion wording change, to see which of the two stacked pieces is responsible for the
+higher-than-ConcreteQuestion ask rate). Before any further tuning, this candidate should go through
+the Fase 5 anti-overfitting check (second seed + `--split val`) that `LAASeR_Repair`'s own
+smoke-vs-val reversal showed is not optional.
+
 ## 2026-10-11 — Fase 3 challenger eleven (`LAASeR_GateV7`): universal self-check generalizes correctly, but introduces real instability
 
 **Hypothesis**: "code ran but produced the wrong output" is the single largest failure category
