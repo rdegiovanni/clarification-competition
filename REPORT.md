@@ -817,6 +817,55 @@ higher-than-ConcreteQuestion ask rate). Before any further tuning, this candidat
 the Fase 5 anti-overfitting check (second seed + `--split val`) that `LAASeR_Repair`'s own
 smoke-vs-val reversal showed is not optional.
 
+## 2026-10-12 — Fase 3 challenger thirteen (`LAASeR_GateV9`): isolation ablation becomes the best result in the whole Fase 3 line
+
+**Hypothesis**: `LAASeR_GateV8`'s clarification rate (21.11%) came in well above both the
+champion's (5.00%) and `LAASeR_ConcreteQuestion`'s on its own (10.00%). `LAASeR_GateV9`
+(`clarify/algorithms/laaser_gate_v9.py`) isolates which of GateV8's two stacked additions is
+responsible: it is byte-for-byte GateV8 with *only* the ConcreteQuestion wording sentence removed
+("prefer a concrete example when you ask"), reverted to the champion's plain ask-wording. The
+`EXAMPLES:`-writing self-check step (with the arg-count guard) is unchanged.
+
+**3-run result** (same 30-task smoke set, seed 42, `openai/gpt-4.1-mini`, temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate |
+|---|---|---|---|---|
+| r1 | 0.6974 | 0.1333 | 70.00% | 13.33% |
+| r2 | 0.6640 | 0.1333 | 66.67% | 13.33% |
+| r3 | 0.7307 | 0.1000 | 73.33% | 13.33% |
+| **Mean ± stdev** | **0.6974 ± 0.0334** | **0.1222 ± 0.0192** | **70.00% ± 3.33pp** | **13.33% ± 0.00pp** |
+
+**Isolation answer**: clarification rate dropped from GateV8's 21.11% to 13.33% when the
+ConcreteQuestion wording was removed, but did **not** return to the champion's 5.00% baseline.
+Both stacked pieces independently push the ask rate up: the ConcreteQuestion wording contributes
+roughly the gap between 21% and 13% (~8pp), and simply asking the model to write an `EXAMPLES:`
+section at all contributes roughly the remaining gap between 13% and 5% (~8pp) on its own —
+apparently the act of stating concrete examples makes the model notice (and want to ask about)
+ambiguities it would otherwise have silently resolved one way or another.
+
+**This ablation is, by a clear margin, the closest any non-champion variant has gotten in the
+entire Fase 3 line**: TDS gap to the champion (0.7160 ± 0.0200) is only 0.0186 — smaller than
+`LAASeR_GateV9`'s own inter-run stdev (0.0334), i.e. statistically indistinguishable from the
+champion on this sample. Net task-level diff (r3 vs. the champion's matched run): loses only
+`Mbpp/755`, gains `HumanEval/108` — **net 0**, the best (and first even) net diff measured across
+all thirteen challengers. Cost ($0.000608/task) remains far below every Gate-family execution-
+verified variant and even below the champion's own historical cost.
+
+**Naming note (2026-10-12)**: this file was renamed from `laaser_gate_v9.py` / `LAASeR_GateV9` to
+`laaser_selfcheck.py` / `LAASeR_SelfCheck` right after this entry was recorded, because — unlike
+the rest of the `laaser_gate_v*.py` lineage it grew out of — it has no "gate" verification step at
+all; the name had stopped describing what the code does. All numbers in this entry are unchanged
+and refer to the same code under its new name.
+
+**Verdict**: `LAASeR_GateV9` is the strongest candidate produced in this entire research line —
+kept, logged as experiment thirteen, and nominated as the next anti-overfitting validation target
+ahead of `LAASeR_GateV8` and `LAASeR_GateV3`. Before any promotion, it still needs the Fase 5 check
+that `LAASeR_Repair`'s own smoke-vs-val reversal made non-negotiable: a second seed and a
+`--split val` run. The remaining open question from this ablation: whether removing the
+`EXAMPLES:` request *entirely* (keeping only the self-check mechanism silent unless the model
+volunteers an example unprompted, or finding a way to request them without inviting extra
+questions) could close the last ~8pp gap to the champion's 5% ask rate -- not yet attempted.
+
 ## 2026-10-11 — Fase 3 challenger eleven (`LAASeR_GateV7`): universal self-check generalizes correctly, but introduces real instability
 
 **Hypothesis**: "code ran but produced the wrong output" is the single largest failure category
