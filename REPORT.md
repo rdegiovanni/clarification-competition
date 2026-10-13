@@ -1146,3 +1146,89 @@ sensible step is to validate whichever Gate variant looks best (v3, the cheapest
 a comparable mean) against a second seed and `--split val` before investing in further Gate-family
 iterations — per the standing lesson from `LAASeR_Repair`'s own smoke-vs-val reversal, no further
 smoke-only tuning should be trusted without that check.
+
+## 2026-10-13 — New smoke-70 set: hardcodes the known-hardest tasks instead of leaving them to chance
+
+Added `KNOWN_HARD_TASKS` to `scripts/make_smoke_dataset.py`: a fixed list of every task this
+report has identified as failing under nearly every challenger measured so far -- the "universal
+failures" set (`HumanEval/139`, `Mbpp/143`, `Mbpp/26`, `Mbpp/229`, `Mbpp/559`, `Mbpp/759`), the
+rest of the `(arr, n)`-style signature-convention class (`Mbpp/617`, `Mbpp/888`), and the GateV3-era
+`Mbpp/90` regression. A new `--hard-tasks` flag force-includes them regardless of the random
+sample (default: this list; `--hard-tasks ""` disables), filling the rest of each class's quota
+randomly exactly as before. Motivation: a 42- or 60-task random smoke sample had no guarantee of
+rolling any of these specific tasks, so a challenger could easily be measured without ever being
+tested against the single strongest evidence we have of a real, repeated failure pattern.
+
+Two implementation findings worth recording: (1) 8 of the 9 hard tasks turned out to belong to the
+*train* split, not val (`data/splits/{train,validation}.txt`), and `data/clarifications.jsonl` has
+zero rows for any of them -- confirmed they are hard because of textual ambiguity/convention gaps
+in the base MBPP/HumanEval prompt itself, not because of a clarification-injected perturbation.
+`--source val`'s `_val_rows()` is split-filtered, so a `_find_any_row()` fallback was added to pull
+these in from any perturbation file regardless of split membership. (2) `--source val`'s HumanEval
+universe only has 30 distinct task_ids, so an even per-class split of `--n 70` across 2 classes
+(35/35) could never reach 70 total; added a water-filling pass that redistributes any class's
+shortfall to a class with spare capacity (Mbpp's val universe has 60 ids), so `--n 70` now actually
+produces 70 tasks (39 Mbpp + 31 HumanEval with the default hard-task list and seed 42) instead of
+silently serving 65. Verified: all 9 hard tasks present exactly once in a `--source val --n 70
+--seed 42` build; default `--source original` behavior (no `--hard-tasks` override) unchanged
+except that it now also force-includes the same 9 tasks, which was judged a feature, not a
+regression, since the whole point is to never again measure a challenger without exercising them.
+
+## 2026-10-13 — Fase 3 challenger fifteen (`LAASeR_PinpointSig`): the forced signature question fires correctly but does not produce a confirmed net win
+
+**Hypothesis**: `LAASeR_Pinpoint`'s STEP 1 DEFECTS step can rate a missing argument as a defect
+but still let the model talk itself into `IMPACT: LOW` ("the natural parameter is just `arr`") and
+decide `DECISION: CODE` anyway -- nothing in the prompt forces a different outcome once the model
+is confident in its own guess, so the `(arr, n)`-style signature class (`Mbpp/229`, `559`, `617`,
+`888`) stayed open even under Pinpoint. `clarify/algorithms/laaser_pinpoint_sig.py`
+(`LAASeR_PinpointSig`) is Pinpoint with one isolated addition to the AUDIT prompt: a SIGNATURE RULE
+stating that any argument-count/order/type uncertainty is *always* `IMPACT: HIGH`, never
+downgradable to a confident guess, with the question phrased literally as a signature question
+("What are the exact parameters that `f` should take -- how many, in what order, and of what
+type?"). Known prior art: this is the same underlying idea as challenger #2 (`LAASeR_Signature`),
+which failed when grafted onto the champion's plain `READY_TO_CODE` loop -- the model never
+actually asked about `Mbpp/229`/`559` and the generic nudge raised the ask rate elsewhere instead.
+Pinpoint's forced per-defect enumeration gives the rule something concrete to attach to, so it was
+judged worth a second, architecturally-different test rather than assumed to fail the same way.
+
+**3-run result** (new smoke-70 set above, `--source val --seed 42`, `openai/gpt-4.1-mini`,
+temperature 0.7, identical 70-task set for both algorithms):
+
+| Run | Pinpoint TDS | Pinpoint over-asking | PinpointSig TDS | PinpointSig over-asking |
+|---|---|---|---|---|
+| r1 | 0.6470 | 87.50% | 0.6733 | 87.50% |
+| r2 | 0.6602 | 87.50% | 0.6173 | 100.00% |
+| r3 | 0.6870 | 87.50% | 0.6447 | 100.00% |
+| **Mean ± stdev** | **0.6647 ± 0.0204** | **87.50% ± 0.00pp** | **0.6451 ± 0.0280** | **95.83% ± 7.22pp** |
+
+Gap (0.0196) is smaller than `LAASeR_PinpointSig`'s own stdev (0.0280) -- not a confirmed win, and
+if anything the mean points slightly the other way.
+
+**The mechanism does work, partially, and the net-neutral result has a real cause, not just
+noise**: checked `clarification_history` for the signature-class tasks directly in r1's
+`results.jsonl`. `PinpointSig` asked the literal signature question (and only that) on `Mbpp/229`,
+`617`, `888`, and `26` -- all four times `Pinpoint` instead asked about something else (zero
+handling, move semantics, etc.) on the same tasks. `Mbpp/229` is a clean, concrete win: told
+explicitly "two parameters, an array and its size," it passed, while `Pinpoint` asked about
+zero-treatment and failed. But `Mbpp/617` and `888` still failed even after getting the fully
+correct signature back (`min_Jumps`'s answer: "three parameters... two integers... followed by...
+jump length," verified correct) -- the remaining failure there is a plain implementation bug,
+unrelated to the clarification question, so fixing the ask does not guarantee a pass. And on
+`Mbpp/559` specifically, the SIGNATURE RULE did **not** fire at all -- the model asked about
+empty-list/negative-sum handling instead, the exact same failure mode documented for the original
+`LAASeR_Signature`: the prose apparently still reads as "obviously just `arr`" to the model even
+with the rule in place, on this one task. Over-asking rose to 100% in 2 of 3 runs (vs. a steady
+87.50% for `Pinpoint` in all 3) -- the same side effect `LAASeR_Signature` showed on the champion's
+loop, just smaller in magnitude here because Pinpoint's baseline ask rate was already high.
+
+**Verdict**: `LAASeR_PinpointSig` does **not** beat `LAASeR_Pinpoint` -- kept, not deleted, logged
+as experiment fifteen. This is now the second time (`LAASeR_Signature`, then this) that a textual
+"treat signature uncertainty as reason enough to ask" rule has been measured and found to raise
+the ask rate broadly rather than specifically, while only partially fixing the targeted bug class
+(works on `Mbpp/229`/`617`/`888`'s *question*, not reliably on `Mbpp/559`'s, and doesn't fix
+`617`/`888`'s separate implementation bugs even when the question lands correctly). Two prompt-text
+attempts across two different architectures is reasonably strong evidence that this specific lever
+-- a generic epistemic rule about signatures -- has a real ceiling; a further attempt on this exact
+hypothesis would need either a different mechanism entirely (e.g. verifying the implementation
+against the self-stated signature via `env.exec_code`, closer to `LAASeR_SelfCheck`'s pattern, but
+for arity rather than output values) or should be set aside in favor of other open leads.
