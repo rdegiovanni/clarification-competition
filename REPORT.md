@@ -1232,3 +1232,94 @@ attempts across two different architectures is reasonably strong evidence that t
 hypothesis would need either a different mechanism entirely (e.g. verifying the implementation
 against the self-stated signature via `env.exec_code`, closer to `LAASeR_SelfCheck`'s pattern, but
 for arity rather than output values) or should be set aside in favor of other open leads.
+
+## 2026-10-13 — Fase 3 challenger sixteen (`LAASeR_Formal`): formalize-and-SAT gets the best nDCG of the session, but does not beat Pinpoint on TDS
+
+**Hypothesis**: every earlier challenger decides whether a defect is worth asking about by
+trusting the model's own self-rated `IMPACT: HIGH/LOW` judgment (or a textual rule about when to
+override it, as `LAASeR_PinpointSig` just showed has a ceiling). `clarify/algorithms/laaser_formal.py`
+instead *formalizes* each defect as a boolean atom (true = first reading, false = second) plus any
+logical relationship the task text states between atoms, and runs a satisfiability check over that
+small propositional theory to decide mechanically: UNSAT (the theory, or the model's own baseline
+guess, is self-contradictory) or AMBIGUOUS (more than one satisfying assignment, disagreeing on
+some atom) -> ask about that atom; DETERMINED (exactly one satisfying assignment) -> code directly
+with the resolved facts handed to the coding call as settled context. No real SAT/SMT solver exists
+in the sandbox (`z3-solver` tested directly in `ganler/evalplus`: not installed, same as Nagini), so
+satisfiability is decided by brute-force enumeration over the handful of atoms one task's defects
+ever produces (`MAX_ATOMS = 16`) -- a correct, complete decision procedure, not a heuristic, run
+via `env.exec_code`.
+
+**A real implementation bug was found and fixed before any result could be trusted.** The first
+measured run (3 of smoke-70's hard tasks spot-checked, then a full run) scored **TDS 0.4692, Pass@1
+47.14%** -- a collapse far below every other challenger. Root-caused by rerunning a single task
+(`HumanEval/139`'s neighbor `HumanEval/115`, `max_fill`) in isolation outside the harness
+(`generate_responses.py` against a 1-task dataset, clean log, no interleaving): the model, told to
+"write a single Python dict literal with no other text inside it", frequently wrote the dict and
+*nothing else* -- no literal `FORMALIZATION:` marker before it, no STEP 2 fallback `DECISION:`
+line either. `_parse_formalization` required the literal marker text, so this silently returned
+`None`; the fallback (`_fallback_decision`) then found no `DECISION:`/`QUESTION:` either, forced an
+unplanned, costly repair round-trip through `_finalize`, and on tasks where that repair round also
+failed, returned an effectively empty candidate. Fixed two ways: (1) `_parse_formalization` no
+longer requires the `FORMALIZATION:` marker -- it scans the whole response for the first top-level
+`{...}` wherever it appears; (2) the prompt's STEP 2 framing changed from "only used if the
+FORMALIZATION above cannot be read" (which gave the model an easy excuse to skip it whenever it
+felt confident) to an unconditional "always write this, right after the dict". Verified against the
+real model: reran the same isolated task 3x post-fix, `FORMALIZATION:` marker present and no wasted
+repair call in all 3 (`grep -c "cannot be used"` = 0 each time), and a dedicated regression test
+(`test_markerless_formalization_still_parses_and_reaches_sat_check`) locks in the fix. All
+measurements below are post-fix; the broken run is kept on disk (`results/runs/*formal-s70-r1`) as
+the record of the bug, not counted toward the verdict.
+
+**3-run result** (same smoke-70 set/seed as `LAASeR_Pinpoint`/`LAASeR_PinpointSig`,
+`openai/gpt-4.1-mini`, temperature 0.7, post-fix):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate | Over-asking rate |
+|---|---|---|---|---|---|
+| r1 | 0.6184 | 0.9143 | 64.29% | 97.14% | 87.50% |
+| r2 | 0.5762 | 0.9000 | 60.00% | 100.00% | 100.00% |
+| r3 | 0.6453 | 0.9143 | 67.14% | 98.57% | 93.75% |
+| **Mean ± stdev** | **0.6133 ± 0.0348** | **0.9095 ± 0.0083** | **63.81% ± 3.57pp** | **98.57% ± 1.17pp** | **93.75% ± 5.15pp** |
+
+Versus the two most recent challengers on the identical task set: `LAASeR_Pinpoint` 0.6647 ± 0.0204,
+`LAASeR_PinpointSig` 0.6451 ± 0.0280. The gap to Pinpoint (0.0514) exceeds `LAASeR_Formal`'s own
+stdev -- a real regression on TDS, not noise. The gap to PinpointSig (0.0318) is closer to its
+stdev and less clear-cut.
+
+**But the nDCG is the best recorded all session** -- 0.9095 ± 0.0083, with remarkably low
+run-to-run variance, and it **beats the public leaderboard leader's own nDCG (0.8987)**. The reason
+is visible directly in the mechanism check (`Mbpp/26, 229, 559, 617, 888, 143, 759, 90,
+HumanEval/139`, run 1): `LAASeR_Formal` asked a question on **all 9** of the hard tasks (every
+other challenger measured this session asked on at most 4 of them), and every question is phrased
+with an exact quoted phrase plus two explicit, concrete competing readings (e.g. for `Mbpp/229`:
+`"the task says 'so that all negative items come before positive ones' -- is it that [stable
+order], or that [any order]?"`) -- almost exactly the simulated-human rubric's own ATOMICITY/
+OBJECTIVITY criteria, by construction, since the FORMALIZATION step forces the model to state both
+readings explicitly before any question is even built.
+
+**Why TDS still loses despite near-universal, high-quality asking**: the SAT layer's AMBIGUOUS
+path triggers whenever an atom is *unconstrained* by `clauses` -- and in practice, the model almost
+never writes a clause relating two atoms or pinning one to a fixed value (correctly, since real
+tasks rarely state an explicit logical relationship between two separate defects). With one atom and
+no clauses, both truth values always satisfy the (empty) theory, so that atom is *always* "free" --
+meaning the mechanism's real-world behavior collapses to "ask whenever at least one defect is
+found" rather than genuinely filtering by logical necessity, which explains the 93.75% mean
+over-asking rate (above even `LAASeR_PinpointSig`'s 95.83%) and the 98.57% clarification rate.
+Separately, **asking does not reliably target the task's real failure cause**: on `Mbpp/229`,
+`LAASeR_Formal` asked about order-stability (not the unmentioned `n` parameter that actually
+determines pass/fail -- the same "asked about zero-handling instead of the signature" pattern
+`LAASeR_GateV3`/`v6` hit on this exact task back in challengers seven/nine), and still failed; only
+`Mbpp/90` (1 of 9 hard tasks) passed after asking. The model's own defect-listing order, not the SAT
+result, decides *which* atom gets asked about when several are free, and that order has no reason
+to correlate with which ambiguity the hidden tests actually exercise.
+
+**Verdict**: `LAASeR_Formal` does **not** beat `LAASeR_Pinpoint` on TDS -- kept, not deleted, logged
+as experiment sixteen. Two things worth carrying forward separately: (1) the "quote the exact phrase
+plus two explicit readings" question-construction pattern is now confirmed, on two different
+mechanisms (`LAASeR_Pinpoint`'s own AUDIT wording already did a version of this, but `Formal`'s
+forced-atom structure makes it unconditional) to produce the best nDCG seen this session -- worth
+keeping for nDCG tie-break purposes even in an algorithm whose TDS wins on asking less; (2) the SAT
+layer only earns its cost once `clauses` are non-trivially populated, which real task text rarely
+supports -- a future attempt would need either a cheaper way to decide ASK/CODE when `clauses` is
+empty (e.g. fall back to a self-rated impact check only in that case, instead of defaulting to
+AMBIGUOUS), or to find question-selection logic that targets the defect most likely to flip a hidden
+test rather than the model's own listing order.
