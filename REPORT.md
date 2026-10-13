@@ -1323,3 +1323,67 @@ supports -- a future attempt would need either a cheaper way to decide ASK/CODE 
 empty (e.g. fall back to a self-rated impact check only in that case, instead of defaulting to
 AMBIGUOUS), or to find question-selection logic that targets the defect most likely to flip a hidden
 test rather than the model's own listing order.
+
+## 2026-10-13 — Fase 3 challenger seventeen (`LAASeR_FormalVerified`): closes almost all of `LAASeR_Formal`'s TDS gap, statistically indistinguishable from `LAASeR_Pinpoint`
+
+**Hypothesis** (direct follow-up to challenger sixteen's diagnosed cause): `LAASeR_Formal`'s SAT
+check reports AMBIGUOUS whenever an atom is unconstrained by `clauses` -- the common case, since
+real task text rarely states an explicit relationship between two separate defects -- making it
+behave like "ask whenever any defect is found" (93.75% mean over-asking) rather than filtering by
+real necessity. `clarify/algorithms/laaser_formal_verified.py` gates the AMBIGUOUS branch only
+(UNSAT and DETERMINED, and the FORMALIZE step itself, are byte-for-byte unchanged from
+`laaser_formal.py` -- this preserved what already earned the best nDCG of the session) behind an
+execution-grounded divergence check, directly reusing the CONTRA-paper-pattern already validated
+in `laaser_gate_v2.py`'s ALT_PROBE: build one short candidate per reading, run both on a handful of
+representative inputs, and only ask if they actually produce different outputs. When they don't
+diverge, the baseline reading is handed to the coding call as a settled fact instead of costing a
+question. A probe that can't be built, parsed, or run defaults to asking (never silently drops a
+real question because verification itself failed). Spot-checked against the real model in isolation
+on two tasks before the full run (`generate_responses.py` against 1-task datasets, clean logs):
+`HumanEval/115` correctly built two genuinely different candidates, detected real divergence, asked,
+and produced correct final code; `Mbpp/229` reproduced the already-documented "asks about the wrong
+thing" pattern (zero-handling, not the missing `n` parameter) -- confirming the mechanism works as
+designed without introducing a new bug, before spending the full 3-run budget on it.
+
+**3-run result** (same smoke-70 set/seed as every challenger above, `openai/gpt-4.1-mini`,
+temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate | Over-asking rate |
+|---|---|---|---|---|---|
+| r1 | 0.6350 | 0.7714 | 65.71% | 78.57% | 87.50% |
+| r2 | 0.6636 | 0.7429 | 68.57% | 80.00% | 75.00% |
+| r3 | 0.6779 | 0.7286 | 70.00% | 75.71% | 75.00% |
+| **Mean ± stdev** | **0.6588 ± 0.0218** | **0.7476 ± 0.0218** | **68.10% ± 2.17pp** | **78.10% ± 2.19pp** | **79.17% ± 7.22pp** |
+
+Versus the lineage on the identical task set: `LAASeR_Pinpoint` 0.6647 ± 0.0204, `LAASeR_PinpointSig`
+0.6451 ± 0.0280, `LAASeR_Formal` 0.6133 ± 0.0348. **The gap to Pinpoint is now 0.0059 -- smaller than
+either side's own stdev.** This is the closest any challenger has come to the current best this
+session (closer than PinpointSig's 0.0196 gap, far closer than plain Formal's 0.0514 gap): on this
+sample, `LAASeR_FormalVerified` is statistically indistinguishable from `LAASeR_Pinpoint` on TDS.
+Clarification rate dropped from Formal's 98.57% mean to 78.10%, and -- notably -- mean over-asking
+(79.17%) is now *lower* than Pinpoint's own steady 87.50%, while using an execution-verified
+mechanism rather than Pinpoint's self-rated IMPACT judgment. nDCG dropped to 0.7476 ± 0.0218 (down
+from plain Formal's 0.9095 -- expected, since fewer of the exact-phrase/two-reading questions get
+asked at all now, costing some of that nDCG credit), landing below `ContractFirstClarifier`'s 0.8247
+and `Okanagan`'s 0.7688 but still comfortably above `ClarifyGPT`'s 0.3818.
+
+**Mechanism check** (same 9 hard tasks, run 1): the gate visibly filters -- `Mbpp/888`, `143`, and
+`759` were asked about under plain `LAASeR_Formal` but are *not* asked about here (the divergence
+probe found no behavioral difference, or defaulted silently per the gate), while `Mbpp/26`, `229`,
+`559`, `617`, `90`, and `HumanEval/139` still are (6 of 9, down from Formal's 9 of 9, but still far
+above every non-Formal-family challenger's at-most-4). Only `Mbpp/90` passes, same as every other
+challenger in this lineage -- the question-*selection* problem (asking about the wrong defect when
+several are listed, e.g. `Mbpp/229`'s zero-handling question instead of the missing `n` parameter)
+is unaffected by this change, exactly as expected: the divergence gate decides *whether* to ask
+about the atom already chosen, not *which* atom gets chosen.
+
+**Verdict**: no confirmed win over `LAASeR_Pinpoint` yet (gap is noise-sized, not a win), but this
+is the strongest result produced by the formalization line, and arguably the strongest non-Pinpoint
+result of the whole session given it reaches near-parity through a different, execution-verified
+mechanism rather than self-rated judgment. Logged as experiment seventeen, kept alongside every
+other variant. Per standing team policy, **not promoted to any champion/submission status** without
+explicit sign-off -- the natural next steps the team should decide on are: a second seed to rule out
+this being a favorable sample, a full `--split val` confirmation (the same bar `LAASeR_Pinpoint`
+was held to before anyone trusted its own near-leader result), and separately, attacking the
+question-selection problem identified above (unaffected by this change) as the next lever for an
+actual win rather than parity.
