@@ -1387,3 +1387,162 @@ this being a favorable sample, a full `--split val` confirmation (the same bar `
 was held to before anyone trusted its own near-leader result), and separately, attacking the
 question-selection problem identified above (unaffected by this change) as the next lever for an
 actual win rather than parity.
+
+## 2026-10-13/14 — Fase 3 challenger eighteen (`LAASeR_FormalLogic`): fixes leakage and a mis-attribution bug, drops the mandatory signature atom after measuring it would mostly target train, not val
+
+**Design** (`clarify/algorithms/laaser_formal_logic.py`): starts from `laaser_formal_verified.py`'s
+proven SAT+divergence-gate mechanism unchanged, and iterates the FORMALIZE wording through three
+rounds of real-model spot-checks before the full measurement, each catching a concrete bug:
+
+1. First attempt made the signature atom **mandatory and listed first**, reasoning that a genuine
+   arity mismatch produces a mechanical divergence for free (calling a 1-arg candidate with a
+   2-arg input tuple always `TypeError`s). The user pointed out this targets a class that barely
+   exists in val: a direct check found **56 Mbpp tasks** whose hidden tests pass a trailing
+   `len(arr)`-matching argument, but **55 of 56 are in the train split, only 1 in val** -- so
+   forcing this atom first would crowd out real val ambiguities (per `LAASeR_Pinpoint`'s own
+   finding, ~75-80% of val tasks have an unrelated hidden requirement) to chase a pattern we are
+   almost never actually scored on. Fixed by dropping "mandatory, listed first" entirely: signature
+   is now just one ordinary defect type the model can report, on equal footing with the others.
+2. UNSAT always blamed `formalization["atoms"][0]` (which the mandatory-first design made
+   deterministically the signature atom), regardless of which atom's clause was actually violated
+   -- a real textual contradiction elsewhere would still generate a signature question. Fixed by
+   making `SAT_SCRIPT_TEMPLATE` report which atom(s) are implicated by the violated clause (mirrors
+   how `AMBIGUOUS` already reported its free atoms), verified with a dedicated real-exec test
+   (`test_real_unsat_script_blames_the_violated_clauses_atom`).
+3. `reading_true`/`reading_false` were required to be literal Python predicates (e.g. `"result ==
+   [x for x in arr if x < 0] + [...]"`), and `_build_question` pastes them verbatim into the
+   question -- a direct LEAKAGE risk per the simulated judge's rubric, confirmed in a real spot-check
+   on `Mbpp/229` (`QUALITY=1`, vague answer). Fixed by requiring plain-English, quantified-when-
+   relevant descriptions instead, explicitly banning code/set-builder notation in the prompt.
+
+**Result**: a single run (per the team's new policy -- one run first, only continue if it looks
+good) scored **TDS 0.5921, nDCG 0.8286, Pass@1 61.43%, clarification rate 92.86%, over-asking
+81.25%** -- below both `LAASeR_Pinpoint` (0.6647 mean) and `LAASeR_FormalVerified` (0.6588 mean), so
+no further repeats were spent on it. A real-model spot-check on `Mbpp/229` after all three fixes
+confirmed the trade-off is real: it no longer asks about the signature at all on that task (every
+one of 3 isolated reruns asked about order-stability instead, with good `QUALITY=3` natural-language
+questions), so the specific bug this variant was built to catch is not caught -- a deliberate,
+data-justified trade against over-asking on the far more common val-side ambiguities, not a bug.
+
+**Verdict**: not promoted; kept as experiment eighteen. The three fixes (drop forced-first signature,
+fix UNSAT atom attribution, ban code in questions) are each independently worth carrying into any
+future `Formal`-lineage work regardless of this specific run's TDS.
+
+## 2026-10-13/14 — Fase 3 challenger nineteen (`LAASeR_FormalDPLL`, user-authored): in-process DPLL reasoning, two single runs below Pinpoint, mostly ordinary coding mistakes
+
+**Design** (`clarify/algorithms/laaser_formal_dpll.py`, `tests/test_laaser_dpll.py`): a from-scratch,
+user-authored variant distinct from this report's own `LAASeR_Formal*` lineage -- formalizes defects
+as atoms with provenance-tagged EVIDENCE clauses (quotes mechanically verified against the task
+text), grounds them against doctest/inline examples extracted from the prompt via one `exec_code`
+call, and runs an in-process DPLL solver (unit propagation, pure-literal elimination, minimal-unsat-
+core extraction) to decide UNSAT/ambiguous/determined. When no `def` stub is shown, a `HEDGE_RULE`
+tells the coder to accept an optional trailing parameter (e.g. `def f(arr, n=None):`) instead of
+asking about it, so stub-less MBPP tasks don't need a question just to cover the arity convention.
+
+**Two single runs** (same smoke-70/seed, before and after a mid-session update by the user):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate | Over-asking |
+|---|---|---|---|---|---|
+| r1 (initial) | 0.5144 | 0.6429 | 52.86% | 65.71% | 50.00% |
+| r2 (after update) | 0.5584 | 0.5286 | 57.14% | 58.57% | 25.00% |
+
+Both below `LAASeR_Pinpoint` (0.6647 mean); per the team's "one run, continue only if good" policy,
+no third repeat was run. The update meaningfully cut over-asking (50% -> 25%) and raised TDS/Pass@1,
+at the cost of nDCG (0.6429 -> 0.5286) -- not yet confirmed whether that's a real trade-off or noise
+(two single runs, not a 3-run mean).
+
+**Mechanism check (r1 and r2 combined)**: the hedge parameter shows up as a literal, unused `_=None`
+(r1, 10/70 tasks) or `n=None`/`length=None` (r2, 49/70 tasks -- near-universal once stub-less tasks
+reliably trigger it). In nearly every case it is harmless (default never used, hidden tests calling
+with the original arg count work exactly as before). Exactly one case shows it actually breaking:
+`Mbpp/617` (`min_Jumps`) -- the hidden test calls with **3** real positional arguments
+(`min_Jumps(3,4,11)==3.5`), but the hedge only reserves **one** extra slot, and the expected result
+(`3.5`, not an integer) suggests the task's true semantics differs from either reading considered at
+all. The other ~28 failures per run are ordinary coding/logic mistakes (formula errors, a missing
+delimiter, type confusion) with no sign of being caused by the hedge or the DPLL reasoning layer
+itself -- consistent with ordinary `gpt-4.1-mini` coding competence variance, not a mechanism bug.
+
+**Verdict**: not promoted; kept as experiment nineteen, both runs on record. The hedge mechanism is a
+different, cheaper answer to the same arity-convention problem `LAASeR_PinpointSig`/`LAASeR_FormalLogic`
+tried to solve by asking -- worth a 3-run confirmation of its own before drawing a conclusion either
+way, since the two single runs available disagree on whether the update was a net improvement.
+
+## 2026-10-14 — Fase 3 challenger twenty (`LAASeR_PinpointDPLL`, user-authored): best combined TDS+nDCG result of the session, still a tie with Pinpoint on TDS
+
+**Design** (`clarify/algorithms/laaser_pinpoint_dpll.py`, `tests/test_laaser_pinpoint_dpll.py`,
+authored by the team, not derived from this report's own `LAASeR_Formal*` lineage): formalizes the
+task as a propositional theory with provenance-tagged evidence (quotes verified against the task
+text mechanically), grounds atoms against doctest/inline examples extracted from the prompt via one
+`exec_code` call, and uses an in-process DPLL solver (unit propagation, pure-literal elimination,
+minimal-unsat-core extraction) to decide UNSAT (contradiction -> ask, quoting both sides) vs. a free
+HIGH-impact atom (ambiguity -> ask) vs. fully determined (code with the backbone as settled facts).
+A separate sibling file, `laaser_formal_dpll.py` (same DPLL core, Formal-lineage-style formalization
+instead of Pinpoint-style), was also authored and measured in this session but is not the subject of
+this entry -- see its own two single-run data points above (TDS 0.5144, then 0.5584 after an
+update) for that line's progress.
+
+**3-run result** (same smoke-70 set/seed as every challenger above, `openai/gpt-4.1-mini`,
+temperature 0.7):
+
+| Run | TDS | nDCG | Pass@1 | Clarification rate | Over-asking rate |
+|---|---|---|---|---|---|
+| r1 | 0.7002 | 0.8286 | 72.86% | 98.57% | 93.75% |
+| r2 | 0.6722 | 0.9000 | 70.00% | 100.00% | 100.00% |
+| r3 | 0.6316 | 0.8571 | 65.71% | 98.57% | 100.00% |
+| **Mean ± stdev** | **0.6680 ± 0.0345** | **0.8619 ± 0.0359** | **69.52% ± 3.60pp** | **99.05% ± 0.67pp** | **97.92% ± 2.95pp** |
+
+Versus `LAASeR_Pinpoint` on the identical task set (TDS 0.6647 ± 0.0204): the gap (+0.0033) is far
+smaller than either side's stdev -- statistically tied, not a confirmed win, same conclusion as
+`LAASeR_FormalVerified`'s earlier near-parity result. But nDCG (0.8619 ± 0.0359) is clearly the best
+among every challenger whose TDS is anywhere near Pinpoint's -- well above `LAASeR_FormalVerified`'s
+0.7476 and in the same range as `LAASeR_Formal`'s 0.9095 (which only got there by over-asking at
+93.75%+ with much lower TDS). This is, on balance, the strongest combined (TDS, nDCG) result of the
+whole session, even though TDS alone is tied rather than won.
+
+*Transparency note*: while assembling this entry, two more completed runs of the same label
+(`pinpointdpll-s70-r1`, timestamps `20261013T162832Z` and `20261013T163332Z`) were found already on
+disk, TDS 0.5904 and 0.6190 -- lower than the three above. They predate this entry's own three runs
+by about 17 hours and were made before the file's current, confirmed-passing-all-34-tests state was
+reached (the algorithm went through at least one more edit afterward), so they may reflect an
+earlier draft rather than the version actually measured here. Not merged into the headline mean
+above for that reason, but kept on disk and not hidden: if the earlier draft and the current one
+turn out to be the same, the true mean across all 5 runs is 0.6427 (stdev 0.0436), which would move
+the conclusion from "statistically tied with Pinpoint" to "likely slightly behind it" -- a second
+seed or a few more repeats on the exact current file would settle this.
+
+**Mechanism check**: 16 of the 70 tasks fail in *all three* runs (not noise). Taxonomy, by cause:
+- **1 infra**: `HumanEval/139` (the documented host-side digit-limit crash; unrelated to the algorithm).
+- **3 signature/arity misses** (declared fewer parameters than the hidden tests call with):
+  `Mbpp/229` (`re_arrange_array(arr)`, needs `(arr, n)`), `Mbpp/371` (`smallest_missing(arr)`, called
+  with 3 args), `Mbpp/559` (`max_sub_array_sum(nums)`, needs a second arg) -- the same `(arr, n)`
+  convention class documented since Fase 1, still open under this mechanism.
+- **2 return-container TYPE mismatches, found investigating the user's own hunch about output
+  handling**: `Mbpp/81` (`zip_tuples`) correctly implements the cycling logic exactly as the (good,
+  specific) clarification answer describes, but returns a **tuple** (`tuple(...)` generator) where
+  the hidden test compares against a **list** -- `tuple(...) == [...]` is always `False` in Python
+  regardless of contents. `HumanEval/15` (`string_sequence`) returns `[str(i) for i in range(n+1)]`
+  (a **list** of strings) where the real spec wants a single **space-joined string**. Both are
+  clarification-irrelevant: the model got the *values* right and the *container type* wrong.
+- **2 "no textual signal predicts the real answer" cases** (the simulated judge's own guess is
+  provably wrong against the hidden test, confirmed by hand): `Mbpp/26` (`check_k_elements`) -- asked
+  a reasonable question, got a confident QUALITY=3 answer ("contains at least k distinct tuples"),
+  implemented it exactly, and it still fails, because the task's real hidden semantics (every element
+  value equals k) matches neither reading anyone -- model, question, or simulated human -- ever
+  proposed; this is the same case flagged in `docs/failure-analysis.md`'s very first entry.
+  `Mbpp/143` (`find_lists`) -- asked and got a clear, specific answer ("only `type(item) is list`"),
+  implemented exactly that, but the hidden test's input is a single list wrapped in redundant
+  parentheses (not a tuple of lists), an edge case no reading of the prompt predicts; also already
+  documented as a universal failure in Fase 1.
+- **8 ordinary coding/logic mistakes** unrelated to the clarification mechanism (`Mbpp/617`,
+  `Mbpp/719`, `Mbpp/748`, `Mbpp/759`, `Mbpp/374`, `HumanEval/86`, `HumanEval/98`, `Mbpp/128`) --
+  formula errors, regex bugs, or (for `Mbpp/374`'s exact-order list equality) an enumeration-order
+  mismatch with no textual basis to predict the reference's own ordering. All 16 universal failures
+  asked a question (clarification rate ~99%); the gap is coding competence and dataset edge cases,
+  not under-asking.
+
+**Verdict**: not promoted (no challenger ever is without the team's explicit sign-off). Kept as
+experiment twenty, documented as the strongest TDS+nDCG combination measured so far. The two
+return-type mismatches are the one genuinely new, actionable finding in this mechanism check --
+worth testing whether a lightweight "does the result's type match the declared/implied return type"
+self-check (reusing the already-proven `exec_code` grounding pattern) could catch them without
+touching the ask-rate side of the mechanism at all.
