@@ -222,6 +222,17 @@ Every entry: what changed, why, which script/run measured it, before → after.
 
 <!-- Add new entries above this line, newest first. -->
 
+### 2026-10-15 — v7 (`laaser_pinpoint_smt_3.py`) failure analysis
+
+- **What**: smoke-70 (val, seed 42, `openai/gpt-4.1-mini`), defaults vs.
+  `--question_samples 1 --candidates 1`, one run each.
+- **Result**: TDS 0.6739 (49/70) vs. 0.6327 (46/70); with the two earlier default runs (51, 45)
+  the spread on identical code is 6 tasks, so the difference is within noise.
+- **Reading it**: the 21 failures of the default run all asked and got QUALITY=3 answers; they
+  are extra undeclared test arguments, forced hard tasks, or a hidden requirement other than
+  the one asked. Over-asking (87.5%) costs ~0.008 TDS. The z3 layers run only when the audit
+  codes, i.e. in ~3 of 70 tasks. Full write-up: `docs/v7-failure-analysis.md`.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for
