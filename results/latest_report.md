@@ -1,20 +1,20 @@
-# Run report — LAASeR_PinpointDPLL (2026-10-14T09:58:52+00:00)
+# Run report — LAASeR_PinpointSMT (2026-10-15T08:47:15+00:00)
 
 ## Metadata
 
 | Field | Value |
 |---|---|
-| Commit | `3d665a5` (dirty — uncommitted changes) |
-| Algorithm file | clarify/algorithms/laaser_pinpoint_dpll.py |
+| Commit | `f43486d` (dirty — uncommitted changes) |
+| Algorithm file | clarify/algorithms/laaser_pinpoint_smt.py |
 | Model | openai/gpt-4.1-mini |
 | Temperature | 0.7 (SDK default) |
 | Split / dataset | demo (smoke(source=val,classes=Mbpp,HumanEval,n=70)) |
 | Tasks evaluated | 70 |
-| Unit tests (tests/) | PASSED |
+| Unit tests (tests/) | FAILED |
 
 ## Unit tests
 
-All offline regression tests passed (`tests/`, no network/Docker — these catch exception-handling bugs that the live benchmark may not trigger).
+**Unit tests did not pass** (`FAILED`). See `unittest.log` in this run's folder before trusting the benchmark numbers below.
 
 ## Official competition metrics
 
@@ -22,26 +22,26 @@ Computed with `evaluate_responses.py`'s own `_compute_output_row` / `_turn_disco
 
 | Metric | Value | Meaning |
 |---|---|---|
-| **TDS** (ranking metric) | 0.6316 | turn-discounted success — higher is better |
-| **nDCG** (tie-break) | 0.8571 | clarification quality — higher is better |
-| Pass@1 | 65.71% | raw pass rate |
-| Clarification rate | 98.57% | % tasks where ≥1 question was asked |
-| Over-asking rate | 100.00% | % well-specified tasks needlessly questioned |
-| Avg. cost / task | $0.001412 | prompt cost only, reported, no rank effect |
+| **TDS** (ranking metric) | 0.6876 | turn-discounted success — higher is better |
+| **nDCG** (tie-break) | 0.9000 | clarification quality — higher is better |
+| Pass@1 | 71.43% | raw pass rate |
+| Clarification rate | 95.71% | % tasks where ≥1 question was asked |
+| Over-asking rate | 81.25% | % well-specified tasks needlessly questioned |
+| Avg. cost / task | $0.001568 | prompt cost only, reported, no rank effect |
 
 > Sampling temperature is 0.7 (non-zero), so re-running on the exact same commit/dataset will still shift these numbers by a point or two — treat small deltas below as noise, not signal. Only trust a difference that holds up across more than one run.
 
 ## Vs. previous run (same algorithm/model/split/dataset)
 
-Previous: commit `3d665a5` at 2026-10-14T09:58:31+00:00
+Previous: commit `f43486d` at 2026-10-14T13:35:00+00:00
 
 | Metric | Previous | Now | Δ |
 |---|---|---|---|
-| TDS | 0.6722 | 0.6316 | ▼ -0.0406 |
-| nDCG | 0.9000 | 0.8571 | ▼ -0.0429 |
-| Pass@1 | 0.7000 | 0.6571 | ▼ -0.0429 |
-| Clarification rate | 1.0000 | 0.9857 | ▼ -0.0143 |
-| Over-asking rate | 1.0000 | 1.0000 | = +0.0000 |
+| TDS | 0.6744 | 0.6876 | ▲ +0.0132 |
+| nDCG | 0.8286 | 0.9000 | ▲ +0.0714 |
+| Pass@1 | 0.7000 | 0.7143 | ▲ +0.0143 |
+| Clarification rate | 0.9429 | 0.9571 | ▲ +0.0142 |
+| Over-asking rate | 0.7500 | 0.8125 | ▲ +0.0625 |
 
 ## Public leaderboard position (informational only)
 
@@ -49,8 +49,8 @@ Previous: commit `3d665a5` at 2026-10-14T09:58:31+00:00
 
 | Rank | Algorithm | Team | Model | TDS |
 |---|---|---|---|---|
+| → | **LAASeR_PinpointSMT (this run)** | us | openai/gpt-4.1-mini | **0.6876** |
 | 1 | GatedClarification | STIL-ETS | openai/gpt-4.1-mini | 0.6410 |
-| → | **LAASeR_PinpointDPLL (this run)** | us | openai/gpt-4.1-mini | **0.6316** |
 | 2 | ContractFirstClarifier | D4vidHuang | openai/gpt-4.1-mini | 0.5973 |
 | 3 | Okanagan | baseline | openai/gpt-4.1-mini | 0.5917 |
 | 4 | ClarifyGPT | baseline | openai/gpt-4.1-mini | 0.5625 |
@@ -60,21 +60,21 @@ Previous: commit `3d665a5` at 2026-10-14T09:58:31+00:00
 
 | Benchmark | Passed | Total | Pass rate |
 |---|---|---|---|
-| Mbpp | 23 | 39 | 58.97% |
-| HumanEval | 23 | 31 | 74.19% |
+| Mbpp | 24 | 39 | 61.54% |
+| HumanEval | 26 | 31 | 83.87% |
 
 ## Failure reasons (priority order)
 
 | Reason | Count |
 |---|---|
-| code ran but produced the wrong output | 16 |
-| code ran but failed with an unhandled error | 8 |
+| code ran but produced the wrong output | 15 |
+| code ran but failed with an unhandled error | 5 |
 
 ## Failing task IDs
 
-HumanEval/115, HumanEval/120, HumanEval/139, HumanEval/145, HumanEval/15, HumanEval/6, HumanEval/86, HumanEval/98, Mbpp/128, Mbpp/143, Mbpp/229, Mbpp/26, Mbpp/349, Mbpp/371, Mbpp/374, Mbpp/390, Mbpp/559, Mbpp/617, Mbpp/651, Mbpp/719, Mbpp/748, Mbpp/759, Mbpp/81, Mbpp/888
+HumanEval/139, HumanEval/145, HumanEval/15, HumanEval/17, HumanEval/98, Mbpp/128, Mbpp/143, Mbpp/229, Mbpp/26, Mbpp/374, Mbpp/388, Mbpp/390, Mbpp/559, Mbpp/617, Mbpp/619, Mbpp/651, Mbpp/719, Mbpp/748, Mbpp/759, Mbpp/81
 
 ## Suggested next steps
 
-- Over-asking rate is 100.00% — the algorithm is questioning tasks that didn't need it, which directly costs TDS/nDCG vs. just answering.
-- Mbpp pass rate (58.97%) is notably weaker than HumanEval (74.19%) — look at Mbpp failures first.
+- Over-asking rate is 81.25% — the algorithm is questioning tasks that didn't need it, which directly costs TDS/nDCG vs. just answering.
+- Mbpp pass rate (61.54%) is notably weaker than HumanEval (83.87%) — look at Mbpp failures first.
