@@ -21,6 +21,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 from pathlib import Path
@@ -37,6 +38,22 @@ except ImportError:  # the SDK docstring spells it TooManyQuestionsException
 
 # --------------------------------------------------------------------------- prompts
 
+QUALITY_RUBRIC = """You also judge whether the task description is CORRECT. A programming-task description specifies
+a coding problem: behavior, inputs/outputs, constraints and examples. Decide whether it is accurate, consistent and
+internally coherent. 
+The description already contains everything the user confirmed: a point it states is settled. If it rejects a proposed shape, your signature MUST differ from it.
+Evaluate along:
+1. Accuracy: trace every given example against the stated rule or formula. If an example's output contradicts what the
+   stated logic would produce, the description is INCORRECT (correctness issue); this overrides other considerations.
+2. Completeness: does it omit a constraint, filter or condition that would change which inputs qualify or how the
+   output is computed (dropped exclusion criteria, missing edge-case rule, missing output type, missing threshold)?
+3. Consistency: do examples, constraints and prose agree with each other?
+4. Clarity/Ambiguity: would competent programmers following standard conventions (0-indexing, usual tie-breaking,
+   the natural reading of the function name) converge on the same behavior?
+Key detection rules (apply explicitly):
+- Vague-placeholder red flag: phrases like "a certain type of X", "a certain number", "handles it in a standard way",
+  "do something with", "some way" — especially."""
+
 SIGNATURE_SYSTEM = """You determine the exact Python signature of the function `entry_point` from a task description.
 
 Background: descriptions are short, deliberately blurred versions of classic exercises. A hidden test-suite calls
@@ -44,15 +61,18 @@ the function with fixed positional arguments. A wrong number of arguments, or a 
 versus two lists, a list versus a single number, a flat list versus a list of pairs), fails every test.
 
 Work like the author of the test-suite:
-1. Write three different plausible test calls, as in `assert f(<args>) == <expected>`. Give only the argument
-   lists, as Python literals. Different authors may have chosen different shapes: let the three calls reflect the
-   plausible range, not one favourite.
+1. Write three different plausible test calls, as in `assert f(<args>) == <expected>`. Give only the argument lists,
+   as Python literals. They help you think; they are not used to decide whether to ask.
 2. From the calls and the description, choose the most probable signature.
+3. Judge the description, for the inputs and the return value ONLY.
+
+""" + QUALITY_RUBRIC + """
 
 Reply with one ```json block:
 {"calls": ["[arg1, arg2]", "[arg1, arg2]", "[arg1, arg2]"],
  "signature": "def f(a: List[int], b: int) -> bool:",
- "confidence": 0.0,
+ "assessment": {"reasoning": "<max 60 words>", "verdict": "correct" | "incorrect",
+                "issue_type": "none" | "ambiguity" | "incompleteness" | "contradiction" | "correctness"},
  "alternatives": ["def f(...) -> ...:"]}
 
 Rules:
@@ -63,14 +83,35 @@ Rules:
   "word", "text" or "string" means a string.
 - Do not minimise and do not maximise the number of parameters: choose what the description implies. A fixed
   threshold stays a constant only if the description gives no sign that the caller supplies it.
-- USER CLARIFICATIONS settle everything they cover. If an answer rejects a proposed shape (says No to it), your
-  signature MUST differ from it. Answers marked partial or evasive must not be relied on.
-- confidence = probability that the number of parameters and their kinds match what the test-suite passes. Use
-  0.7 or less whenever the description does not state the inputs explicitly.
-- alternatives: other plausible signatures with a different number or kind of parameters ([] if none)."""
+- USER CLARIFICATIONS settle everything they cover. If an answer rejects a proposed shape, your signature MUST differ
+  from it. Answers marked partial or evasive must not be relied on.
+- verdict is "incorrect" only if a test author could reasonably choose a different number or kind of arguments, or a
+  different return form. Then alternatives lists those competing signatures. If the verdict is "correct",
+  alternatives is []. issue_type is "none" if and only if the verdict is "correct"."""
+
+QUESTION_SYSTEM = """You write ONE clarification question for a user who knows the intended behavior of a Python
+function but cannot show you the tests. Unnecessary questions are penalized, so ask only for the single missing fact.
+
+You get the task with earlier clarifications, an assessment of the description (issue type and reasoning), and the
+decision that is still open (what you assumed, the alternatives, and sometimes an input on which they differ).
+
+Choose the form by issue type:
+- incompleteness: ask for the missing element. Example: "What condition must a word satisfy to count as long?"
+- ambiguity: name the competing readings briefly and neutrally, without preferring one.
+  Example: "Which of these should the function return: the count of matches or the matches themselves?"
+- contradiction: quote the two conflicting statements. Example: "Which is correct: A or B?"
+- correctness: an example contradicts the rule, so ask what the call must return.
+  Example: "What should f([1, 2]) return?"
+If a witness input is given and one value settles the point, "What should f(<witness>) return?" is also good.
+If the topic is "signature", ask how many arguments the function takes and of what kind, naming the candidates.
+
+Rules: one sentence, exactly one question mark, beginning with What, Which or How. Never yes/no. Never mark one
+reading as the default. Do not mention tests or implementation techniques. Do not repeat an earlier question; if the
+user already answered partially, ask for the missing part from another angle.
+Reply with the question only."""
 
 FORMAL_SYSTEM = """You are a requirements analyst. Turn a task description (plus any user clarifications) into a
-precise specification, and list what is still uncertain.
+precise specification, judge the quality of the description, and list what is still uncertain.
 
 Background: the description is a short, deliberately blurred version of a classic programming exercise. The exact
 criterion or formula, constants, which items are affected, the form of the return value or the counting rule may
@@ -78,51 +119,52 @@ have been removed. The simplest reading is NOT automatically the intended one.
 
 The SIGNATURE is FIXED and settled. Do not change it, question it or list uncertainties about it.
 
+""" + QUALITY_RUBRIC + """
+
 Reply with one ```json block:
-{"readings": {"literal": "what the description says, read word by word",
-              "classic": "the standard version of this exercise as you remember it (inputs, output, exact criterion), or null",
+{"assessment": {"reasoning": "<max 80 words>", "verdict": "correct" | "incorrect",
+                "issue_type": "none" | "ambiguity" | "incompleteness" | "contradiction" | "correctness"},
+ "readings": {"literal": "what the description says, read word by word",
+              "classic": "the standard version of this exercise as you remember it, or null",
               "differ": true, "difference": "what differs between them, or null"},
  "rule": "1-3 sentences: exactly what the function computes and returns",
  "requires": ["expr"], "ensures": ["expr"],
  "examples": [{"args": "[a1, b1]", "expected": "value"}],
  "uncertainties": [{"category": "output|semantics|constant|edge",
+                    "issue_type": "ambiguity|incompleteness|contradiction|correctness",
                     "assumed": "...", "alternatives": ["...", "..."],
-                    "witness": "an input on which the alternatives give different results, or null",
-                    "confidence": 0.0, "impact": "high|low", "question": "..."}]}
+                    "witness": "arguments of one call as a Python list literal on which the alternatives differ, or null",
+                    "confidence": 0.0, "impact": "high|low"}]}
 
 Rules:
+- assessment judges the description together with the user clarifications, ignoring the signature. issue_type is
+  "none" if and only if the verdict is "correct". If you list a high-impact uncertainty with confidence below 0.6,
+  the verdict cannot be "correct".
 - Account for every content word of the function name and of the description. A word that your rule does not use
-  (for example a qualifier such as "lowercase", "dirty", "special", "long", or a name part such as "Occ") is an
-  uncertainty.
+  (for example "lowercase", "dirty", "special", "long", or a name part such as "Occ") is an uncertainty.
 - Compare the verb of the description with the prefix of the name. is_/check/test suggest a boolean, find/get/
   compute/count suggest a value. If they disagree, the OUTPUT form is uncertain.
 - readings.differ is true if the classic version would give a different result from the literal reading on an input
-  that an ordinary test would try (which occurrences are affected, which criterion, which output form, which
-  counting rule). If differ is true, include a matching uncertainty with confidence 0.5 or less.
+  that an ordinary test would try. If differ is true, include a matching uncertainty with confidence 0.5 or less.
 - rule: follow the clarifications; where nothing settles a point, follow the literal reading.
-- USER CLARIFICATIONS are settled and override everything. Never list them as uncertain. Partial or evasive answers
-  are NOT settled. If an answer says the user cannot say more, take the standard reading with confidence 1.0.
-- requires/ensures: single Python expressions in Nagini style: Result(), Old(x), Implies(a, b); len, sum, min, max,
-  sorted, set, all, any, abs, isinstance are allowed. State only what the description or clarifications establish.
-  A missing clause is better than a guessed one. Describe properties; do not re-implement.
+- Statements in the description are settled; never list them as uncertain. For a point listed under 'POINTS THE USER COULD NOT SETTLE', take the standard reading with confidence 1.0.
+- requires/ensures: No method calls (no .count, .index, .bit_count), no bin, str or format; use only arithmetic, comparisons, len, sum, min, max, sorted, set, all, any, abs, Result(), Old(x) and Implies(a, b)..
 - examples: ONLY input/output pairs literally given in the description or derivable with certainty from the
   clarifications. Never compute your own. Use [] if there are none.
 - uncertainties: each decision where a competent developer could choose differently and an ordinary unit test would
-  notice. confidence = probability that your assumption matches what the test-suite expects. Use 0.6 or less
-  whenever the description names no criterion, formula or constant for something the function must decide.
+  notice. issue_type: incompleteness = a criterion, constant or output form is missing; ambiguity = several readings
+  fit; contradiction = two statements disagree; correctness = a given example contradicts the stated rule.
+  confidence = probability that your assumption matches what the test-suite expects. Use 0.6 or less whenever the
+  description names no criterion, formula or constant for something the function must decide.
   Order by importance: output, semantics, constant, edge.
-- Do NOT list: the signature, int versus float, mutating versus returning, naming, performance, style, invalid input.
-- question: ONE sentence with exactly one question mark, in OPEN form, beginning with What, Which or How. It asks
-  the user to state the missing fact, for example "What condition must a substring satisfy to be counted?", "What
-  should the function return?" or "Which occurrences of the character are removed?". Never propose a default reading
-  inside the question, never ask yes/no, and do not mention tests or implementation techniques."""
+- Do NOT list: the signature, int versus float, mutating versus returning, naming, performance, style, invalid input."""
 
 IMPL_SYSTEM = """You implement a Python function from a task description, a rule, a signature, a contract and user
 clarifications. Reply with exactly one ```python block with the complete code (imports included, standard library
 only). Rules:
 - Exactly the given function name and parameters. Never add, remove or rename parameters. If a constant is not
   specified, hard-code the most standard value.
-- User clarifications override everything else. Do not add behaviour nobody asked for. No assert statements and no
+- The description is authoritative, including every sentence added from user answers. Do not add behaviour nobody asked for. No assert statements and no
   isinstance checks.
 - No printing, no input(). Do not mutate the arguments.
 - Use typing names (List, Dict, Tuple, Optional) and import them from typing.
@@ -135,7 +177,7 @@ only). Rules:
 
 CHECK_SYSTEM = """Check code against the requirements. List violations of EXPLICIT statements in the description, the
 clarifications or the rule: wrong number, order or type of parameters, extra parameters that nobody asked for,
-wrong return form, ignored clarifications. Do not flag style or unverifiable guesses.
+wrong return form, statements of the description that the code ignores. Do not flag style or unverifiable guesses.
 Reply with one ```json block: {"violations": ["..."]} (empty list if none)."""
 
 DIAG_SYSTEM = """Nagini could not verify a candidate implementation against its specification. Decide who is wrong.
@@ -162,10 +204,57 @@ missing fact from another angle, for example by asking what the function returns
 mention tests. Reply with the question only."""
 
 
+PROBE_SYSTEM = """You write call arguments that will be used to compare two implementations of the same function.
+You do not know the expected results and must not compute them.
+You get the task, the signature and the user clarifications.
+Reply with one ```json block: {"inputs": ["[arg1, arg2]", "[arg1, arg2]"]}
+- 8 to 12 small inputs. Each is a Python literal list with exactly the arguments of the signature. Deterministic.
+- Typical cases first. Then the points on which two competent developers could differ: negative numbers, zero,
+  empty collections, duplicates, ties, repeated characters, upper and lower case, punctuation, nested data, a small
+  and a medium value.
+- Copy any example given in the task or in the clarifications exactly.
+- Respect what the task and the clarifications establish about valid values. No invalid types."""
+
+JUDGE_DIFF_SYSTEM = """Two implementations of the same Python function were written independently from the same task.
+They return different results on one call. Decide whether the user's clarifications already settle which one is
+right. If not, write ONE question for the user.
+Reply with one ```json block:
+{"reasoning": "<max 50 words>", "settled": true | false, "right": "A" | "B" | "unknown",
+ "issue_type": "ambiguity" | "incompleteness" | "contradiction" | "correctness", "question": null}
+- settled is true only if the task text or an explicit user clarification fixes the result of this call. Partial or
+  evasive answers settle nothing. Then right says which result is correct, and question is null.
+- Otherwise settled is false, right is "unknown", and question is one sentence with exactly one question mark,
+  beginning with What, Which or How, never yes/no. It asks for the intended behaviour as a rule. Use this call as an
+  example only if it helps, and name the competing behaviours neutrally. Do not show code, do not mention tests or
+  implementations, and do not mark either behaviour as the default.
+  Forms: ambiguity "Which of these should the function do: X or Y?"; incompleteness "What ... ?";
+  correctness "What should f(args) return?"."""
+
+EVOLVE_SYSTEM = """You maintain the text of a programming-task description. A user just answered a clarification
+question. Rewrite the description so that it states the fact the answer establishes, as if the original author had
+written it.
+
+Rules:
+- Keep everything the answer does not contradict: wording, examples, the function name. Keep the same format (if the
+  description is a docstring, return a docstring).
+- Add only what the answer states. No default readings, no examples you computed, no implementation hints, no
+  guesses about what the answer leaves open.
+- Put the fact in its natural place: a sentence for the criterion, the inputs or the return form. If the answer
+  replaces an earlier statement, replace it; never keep two conflicting statements.
+- A fact about a criterion is not a new argument. Add a parameter to the description only if the answer says that the
+  caller supplies it.
+- If the answer states the arguments, write "The function takes ..." with their number and kinds.
+- If the answer is partial, evasive or states no fact, set changed to false and return the description unchanged.
+- The description grows by at most two sentences per answer.
+
+Reply with one ```json block:
+{"changed": true, "fact": "the fact the answer establishes, one sentence, or null",
+ "description": "the full rewritten description"}"""
+
 # --------------------------------------------------------------------------- helpers
 
 def _extract_json(text: str) -> dict[str, Any] | None:
-    m = re.search(r"```json\s*(\{.*\})\s*```", text, re.S)
+    m = re.search(r"```json\s*(\{.*?\})\s*```", text, re.S)
     cand = m.group(1) if m else None
     if cand is None:
         s, e = text.find("{"), text.rfind("}")
@@ -209,11 +298,16 @@ def _valid_expr(src: Any) -> bool:
 def _literal(src: Any) -> Any:
     return ast.literal_eval(src) if isinstance(src, str) else src
 
-
+def _nagini_safe(src: str) -> bool:
+    try:
+        tree = ast.parse(src, mode="eval")
+    except SyntaxError:
+        return False
+    return not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) for n in ast.walk(tree))
 def _clean_spec(out: dict[str, Any]) -> dict[str, Any]:
     """Keep only valid, non-degenerate clauses and literal examples."""
-    req = [r for r in out.get("requires") or [] if _valid_expr(r) and r.strip() != "False"]
-    ens = [e for e in out.get("ensures") or [] if _valid_expr(e) and e.strip() != "True"]
+    req = [r for r in out.get("requires") or [] if _valid_expr(r) and r.strip() != "False" and _nagini_safe(r)]
+    ens = [e for e in out.get("ensures") or [] if _valid_expr(e) and e.strip() != "True" and _nagini_safe(e)]
     examples = []
     for ex in out.get("examples") or []:
         try:
@@ -294,6 +388,17 @@ def _one_question(text: str) -> str:
     text = " ".join(text.strip().strip("`").split())
     return text[: text.index("?") + 1] if "?" in text else text
 
+_YES_NO_START = re.compile(r"^\s*(should|does|do|is|are|can|will|would|has|have|did)\b", re.I)
+
+
+def _open(env: ClarificationEnvironment, q: str) -> str:
+    """Questions must be open (What/Which/How) and single: yes/no and compound ones are rewritten."""
+    q = " ".join(q.split())
+    compound = q.count("?") > 1 or len(q) > 240
+    if not _YES_NO_START.match(q) and not compound:
+        return q
+    out = _one_question(_llm(env, OPEN_SYSTEM, q))
+    return out if "?" in out and len(out) >= 10 else _one_question(q)
 
 def _fmt_spec(f: dict[str, Any]) -> str:
     lines = [f"Rule: {f['rule']}"] if f.get("rule") else []
@@ -302,14 +407,73 @@ def _fmt_spec(f: dict[str, Any]) -> str:
     return "\n".join(lines) or "(no contract)"
 
 
-class _Session:
-    """Per-problem state: task text, question budget and Q/A pairs."""
+ISSUES = ("ambiguity", "incompleteness", "contradiction", "correctness")
+_ISSUE_RANK = {"contradiction": 0, "correctness": 0, "incompleteness": 1, "ambiguity": 2}
 
-    def __init__(self, env: ClarificationEnvironment, problem: dict[str, Any], max_questions: int):
+
+def _assessment(raw: Any) -> dict[str, str]:
+    """Normalise the judge fields. A missing assessment counts as 'incorrect', so behaviour falls back to v5."""
+    if not isinstance(raw, dict):
+        return {"verdict": "incorrect", "issue_type": "incompleteness", "reasoning": ""}
+    verdict = "incorrect" if str(raw.get("verdict", "")).lower() == "incorrect" else "correct"
+    issue = str(raw.get("issue_type", "")).lower()
+    if verdict == "correct":
+        issue = "none"
+    elif issue not in ISSUES:
+        issue = "incompleteness"
+    return {"verdict": verdict, "issue_type": issue, "reasoning": str(raw.get("reasoning", ""))[:600]}
+
+
+def _sig_differs(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    return len(a["params"]) != len(b["params"]) or a["kinds"] != b["kinds"]
+
+
+def make_question(s: _Session, topic: str, assessment: dict[str, str], item: dict[str, Any]) -> str | None:
+    """One question shaped by the issue type and the judge's reasoning."""
+    prior = "\n".join(f"- {q}" for q, _ in s.qa) or "(none)"
+    user = (
+        s.context()
+        + f"\nTOPIC: {topic}\nISSUE TYPE: {item.get('issue_type') or assessment['issue_type']}\n"
+        + f"ASSESSMENT: {assessment['reasoning'] or '(none)'}\n"
+        + f"OPEN DECISION:\n{json.dumps(item, ensure_ascii=False)}\n\nEARLIER QUESTIONS:\n{prior}\n"
+    )
+    q = _one_question(_llm(s.env, QUESTION_SYSTEM, user))
+    if "?" not in q or len(q) < 10 or any(_similar(q, a) for a, _ in s.qa):
+        return None
+    return q
+
+def _overlap(a: str, b: str) -> float:
+    ta, tb = set(re.findall(r"\w+", a.lower())), set(re.findall(r"\w+", b.lower()))
+    return len(ta & tb) / len(ta | tb) if ta and tb else 0.0
+
+
+def _evolution_ok(old: str, new: Any, entry: str) -> bool:
+    """Reject rewrites that drop the function name or an example, shrink or balloon the text, or replace it."""
+    if not isinstance(new, str) or not new.strip():
+        return False
+    new = new.strip()
+    if entry in old and entry not in new:
+        return False
+    if len(new) > len(old) + 500 or len(new) < 0.6 * len(old):
+        return False
+    keep = [ln.strip() for ln in old.splitlines() if re.search(r">>>|\bassert\b|==|=>", ln)]
+    if any(ln not in new for ln in keep):
+        return False
+    return _overlap(old, new) >= 0.4
+
+
+class _Session:
+    """Per-problem state: the evolving task description, question budget and Q/A log."""
+
+    def __init__(self, env: ClarificationEnvironment, problem: dict[str, Any], max_questions: int, evolve: bool = True):
         self.env = env
-        self.prompt: str = problem["prompt"]
+        self.prompt: str = problem["prompt"]  # original, never modified
         self.entry: str = problem["entry_point"]
         self.max_q = max_questions
+        self.evolve = evolve
+        self.desc: str = self.prompt.strip()  # working copy, rewritten after informative answers
+        self.versions: list[str] = [self.desc]
+        self.facts: list[str] = []
         self.qa: list[tuple[str, str]] = []
 
     def can_ask(self) -> bool:
@@ -323,7 +487,24 @@ class _Session:
         except TooManyQuestionException:
             return False
         self.qa.append((question, answer))
+        self._integrate(question, answer)
         return True
+
+    def _integrate(self, question: str, answer: str) -> None:
+        """Fold an informative answer into the working description."""
+        if not self.evolve or _weak_answer(answer):
+            return
+        user = f"CURRENT DESCRIPTION:\n{self.desc}\n\nENTRY POINT: {self.entry}\n\nQUESTION: {question}\nANSWER: {answer}\n"
+        out = _llm_json(self.env, EVOLVE_SYSTEM, user, tries=1)
+        fact = out.get("fact") if isinstance(out.get("fact"), str) and out["fact"].strip() else None
+        if out.get("changed") is False and not fact:
+            return
+        fact = fact or " ".join(answer.split())
+        new = out.get("description")
+        new = new.strip() if _evolution_ok(self.desc, new, self.entry) else self.desc + "\n" + fact
+        self.facts.append(fact)
+        self.desc = new
+        self.versions.append(new)
 
     def ask_robust(self, question: str) -> bool:
         """Ask; if the answer is weak and budget remains, ask once more from another angle."""
@@ -336,55 +517,40 @@ class _Session:
         return True
 
     def context(self) -> str:
-        s = f"TASK DESCRIPTION:\n{self.prompt}\n\nENTRY POINT: {self.entry}\n"
-        if self.qa:
-            lines = []
-            for q, a in self.qa:
-                flag = "  (partial or evasive answer: do not rely on it)" if _weak_answer(a) else ""
-                lines.append(f"Q: {q}\nA: {a}{flag}")
-            s += "\nUSER CLARIFICATIONS (authoritative):\n" + "\n".join(lines) + "\n"
+        s = f"TASK DESCRIPTION:\n{self.desc}\n\nENTRY POINT: {self.entry}\n"
+        if not self.evolve:  # v5 behaviour: clarifications appended
+            if self.qa:
+                lines = []
+                for q, a in self.qa:
+                    flag = "  (partial or evasive answer: do not rely on it)" if _weak_answer(a) else ""
+                    lines.append(f"Q: {q}\nA: {a}{flag}")
+                s += "\nUSER CLARIFICATIONS (authoritative):\n" + "\n".join(lines) + "\n"
+            return s
+        open_pts = [q for q, a in self.qa if _weak_answer(a)]
+        if open_pts:
+            s += (
+                "\nPOINTS THE USER COULD NOT SETTLE (use the standard reading, confidence 1.0, do not ask again):\n"
+                + "\n".join(f"- {q}" for q in open_pts) + "\n"
+            )
         return s
-
-
-_YES_NO_START = re.compile(r"^\s*(should|does|do|is|are|can|will|would|has|have|did)\b", re.I)
-
-
-def _open(env: ClarificationEnvironment, q: str) -> str:
-    """Questions must be open (What/Which/How) and single: yes/no and compound ones are rewritten."""
-    q = " ".join(q.split())
-    compound = q.count("?") > 1 or len(q) > 240
-    if not _YES_NO_START.match(q) and not compound:
-        return q
-    out = _one_question(_llm(env, OPEN_SYSTEM, q))
-    return out if "?" in out and len(out) >= 10 else _one_question(q)
-
-
 # --------------------------------------------------------------------------- stage 1: signature
 
-def _sig_samples(s: _Session, n: int = 2) -> list[tuple[dict[str, Any], dict[str, Any], set[int], set[int]]]:
+def _sig_samples(s: _Session, n: int = 2) -> list[tuple[dict[str, Any], dict[str, str], list[dict[str, Any]]]]:
     samples = []
     for _ in range(n):
         out = _llm_json(s.env, SIGNATURE_SYSTEM, s.context(), tries=1)
         parsed = _parse_signature(out.get("signature"), s.entry)
         if not parsed:
             continue
-        arities = {len(parsed["params"])}
-        for c in out.get("calls") or []:
-            try:
-                v = _literal(c)
-                if isinstance(v, (list, tuple)):
-                    arities.add(len(v))
-            except (ValueError, SyntaxError):
-                pass
-        alt: set[int] = set()
-        if _conf(out.get("confidence")) < 0.9:
+        assess = _assessment(out.get("assessment"))
+        rivals: list[dict[str, Any]] = []
+        if assess["verdict"] == "incorrect":
             for a in out.get("alternatives") or []:
                 pa = _parse_signature(a, s.entry)
-                if pa:
-                    alt.add(len(pa["params"]))
-        samples.append((out, parsed, arities, alt))
+                if pa and _sig_differs(parsed, pa):
+                    rivals.append(pa)
+        samples.append((parsed, assess, rivals))
     return samples
-
 
 def _signature_question(entry: str, sigs: list[dict[str, Any]]) -> str:
     texts = []
@@ -396,43 +562,41 @@ def _signature_question(entry: str, sigs: list[dict[str, Any]]) -> str:
     return f"What arguments does `{entry}` take{hint}: how many, and what kind of value is each one?"
 
 
-def tool_extract_signature(s: _Session, header: str | None, strict: bool, max_sig_questions: int) -> dict[str, Any]:
-    """Number and kind of parameters; ask an open question only on serious doubt."""
+def tool_extract_signature(s: _Session, header: str | None, max_sig_questions: int) -> dict[str, Any]:
+    """Ask only when a rival signature with another number or kind of arguments is plausible."""
     if header:
         parsed = _parse_signature(header, s.entry)
         if parsed:
             return parsed
 
-    threshold = 0.6 if strict else 0.85
     asked = 0
     primary: dict[str, Any] | None = None
-
     for _ in range(max_sig_questions + 1):
         samples = _sig_samples(s, 2)
         if not samples:
             break
-        primary = samples[0][1]
-        sigs = [p for _, p, _, _ in samples]
-
-        arities: set[int] = set()
-        for _, _, ar, alt in samples:
-            arities |= ar | alt
-        kinds_differ = len({tuple(p["kinds"]) for p in sigs}) > 1
-        conf = min(_conf(o.get("confidence")) for o, _, _, _ in samples)
-        doubt = len(arities) > 1 or kinds_differ or conf < threshold
-        if not doubt:
+        primary, assess, _ = samples[0]
+        rivals = [p for _, _, rs in samples for p in rs]
+        rivals += [p for p, _, _ in samples[1:] if _sig_differs(primary, p)]  # the samples disagree
+        if not rivals:
             return primary
         if asked >= max_sig_questions or not s.can_ask():
             return primary
         if asked >= 1 and not _weak_answer(s.qa[-1][1]):
             return primary  # the user answered informatively; do not ask about the arguments again
 
-        if not s.ask_robust(_signature_question(s.entry, sigs)):
+        cands: list[str] = []
+        for p in [primary] + rivals:
+            t = p["text"].rstrip(":")
+            if t not in cands:
+                cands.append(t)
+        q = make_question(s, "signature", assess, {"issue_type": assess["issue_type"], "candidates": cands})
+        q = q or _signature_question(s.entry, [primary] + rivals)
+        if not s.ask_robust(_open(s.env, q)):
             return primary
         asked += 1
 
     return primary or {"text": f"def {s.entry}(*args):", "params": [], "kinds": []}
-
 
 # --------------------------------------------------------------------------- stage 2: formalise + ask
 
@@ -443,6 +607,7 @@ def tool_formalise(s: _Session, sig: dict[str, Any]) -> dict[str, Any]:
     formal["sig"] = sig  # locked
     formal["rule"] = out.get("rule") if isinstance(out.get("rule"), str) else ""
     formal["readings"] = out.get("readings") if isinstance(out.get("readings"), dict) else {}
+    formal["assessment"] = _assessment(out.get("assessment"))
     unc = out.get("uncertainties")
     formal["uncertainties"] = [u for u in unc if isinstance(u, dict)] if isinstance(unc, list) else []
     return formal
@@ -451,32 +616,34 @@ def tool_formalise(s: _Session, sig: dict[str, Any]) -> dict[str, Any]:
 _CAT_ORDER = {"output": 0, "semantics": 1, "constant": 2, "edge": 3}
 
 
-def pick_question(env: ClarificationEnvironment, formal: dict[str, Any], strict: bool, asked: list[str]) -> str | None:
-    """Most uncertain high-impact decision not yet asked about."""
+def pick_uncertainty(formal: dict[str, Any], strict: bool, asked: list[str]) -> dict[str, Any] | None:
+    """Most serious high-impact uncertainty not yet asked about: issue type first, then confidence."""
     threshold = 0.55 if strict else 0.85
-    cands: list[tuple[float, int, str]] = []
+    cands: list[tuple[int, float, int, dict[str, Any]]] = []
     for u in formal["uncertainties"]:
-        q = u.get("question")
         cat = str(u.get("category", "")).lower()
-        if not isinstance(q, str) or len(q.strip()) < 10 or cat in {"interface", "signature"}:
-            continue
-        if str(u.get("impact", "")).lower() != "high":
+        assumed = str(u.get("assumed", ""))
+        if cat in {"interface", "signature"} or str(u.get("impact", "")).lower() != "high" or not assumed:
             continue
         c = _conf(u.get("confidence"))
-        if c >= threshold or any(_similar(q, a) for a in asked):
+        if c >= threshold or any(_similar(assumed, a) for a in asked):
             continue
-        cands.append((c, _CAT_ORDER.get(cat, 4), q.strip()))
+        issue = str(u.get("issue_type", "")).lower()
+        issue = issue if issue in ISSUES else formal["assessment"]["issue_type"]
+        cands.append((_ISSUE_RANK.get(issue, 1), c, _CAT_ORDER.get(cat, 4), {**u, "issue_type": issue}))
     if cands:
-        return min(cands)[2]
+        return min(cands, key=lambda t: t[:3])[3]
 
     rd = formal.get("readings") or {}
     diff = rd.get("difference")
-    if rd.get("differ") is True and isinstance(diff, str) and diff.strip():
-        q = _one_question(_llm(env, OPEN_SYSTEM, f"The standard version of this exercise differs from the literal reading: {diff}"))
-        if "?" in q and len(q) >= 10 and not any(_similar(q, a) for a in asked):
-            return q
+    if rd.get("differ") is True and isinstance(diff, str) and diff.strip() and isinstance(rd.get("classic"), str):
+        lit = str(rd.get("literal", ""))
+        if not any(_similar(lit, a) for a in asked):
+            return {
+                "category": "semantics", "issue_type": "ambiguity", "assumed": lit,
+                "alternatives": [rd["classic"]], "difference": diff, "witness": None,
+            }
     return None
-
 
 # --------------------------------------------------------------------------- stage 3: implementation
 
@@ -516,6 +683,163 @@ def tool_adherence(s: _Session, formal: dict[str, Any], code: str) -> list[str]:
 
 # --------------------------------------------------------------------------- stage 4: verification (Nagini only)
 
+_DIFF_HARNESS = r'''
+import copy, json, math, signal
+
+HAS = hasattr(signal, "SIGALRM")
+
+class TO(Exception):
+    pass
+
+def _alarm(sig, frm):
+    raise TO()
+
+def same(a, b):
+    try:
+        if a == b:
+            return True
+        if type(a) is type(b) and isinstance(a, (list, tuple)) and len(a) == len(b):
+            return all(same(x, y) for x, y in zip(a, b))
+        if isinstance(a, float) or isinstance(b, float):
+            return math.isclose(a, b, rel_tol=1e-7, abs_tol=1e-9)
+    except Exception:
+        pass
+    return False
+
+def load(code):
+    try:
+        ns = {"__name__": "cand"}
+        exec(code, ns)
+        return ns[ENTRY]
+    except BaseException:
+        return None
+
+FNS = [load(A), load(B)]
+if HAS:
+    signal.signal(signal.SIGALRM, _alarm)
+rows = []
+for i, args in enumerate(INPUTS):
+    vals = []
+    for fn in FNS:
+        if fn is None:
+            vals.append((False, "raises LoadError"))
+            continue
+        if HAS:
+            signal.alarm(2)
+        try:
+            vals.append((True, fn(*copy.deepcopy(args))))
+        except TO:
+            vals.append((False, "raises Timeout"))
+        except Exception as e:
+            vals.append((False, "raises " + type(e).__name__))
+        finally:
+            if HAS:
+                signal.alarm(0)
+    (oa, va), (ob, vb) = vals
+    if oa and ob:
+        differ = not same(va, vb)
+    else:
+        differ = oa != ob  # both failing is not a difference; one failing is
+    rows.append({"i": i, "differ": differ,
+                 "a": repr(va)[:200] if oa else va, "b": repr(vb)[:200] if ob else vb})
+print("DIFF:" + json.dumps(rows))
+'''
+
+
+def _run_script(env: ClarificationEnvironment, script: str, timeout: int = 40) -> str:
+    """Prefer the environment's sandbox. Fall back to a local subprocess (no SIGALRM on Windows; the timeout covers it)."""
+    fn = getattr(env, "exec_code", None)
+    if callable(fn):
+        try:
+            return str(fn(script))
+        except Exception:
+            pass
+    try:
+        return subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=timeout).stdout
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
+
+
+def tool_candidate(s: _Session, sig: dict[str, Any]) -> str:
+    """Independent first version: only the task, the signature and the clarifications so far. Saved for step 4b."""
+    bare = {"sig": sig, "rule": "", "requires": [], "ensures": [], "examples": []}
+    return tool_implement(s, bare, "\nWrite the standard textbook version of this exercise, from the task alone.\n")
+
+
+def tool_probe_inputs(s: _Session, sig: dict[str, Any]) -> list[list[Any]]:
+    out = _llm_json(s.env, PROBE_SYSTEM, s.context() + f"\nSIGNATURE: {sig['text']}\n")
+    arity, seen, res = len(sig["params"]), set(), []
+    for x in out.get("inputs") or []:
+        try:
+            v = _literal(x)
+        except (ValueError, SyntaxError):
+            continue
+        if not isinstance(v, (list, tuple)) or (arity and len(v) != arity) or repr(v) in seen:
+            continue
+        seen.add(repr(v))
+        res.append(list(v))
+    return res[:12]
+
+
+def tool_diff(s: _Session, sig: dict[str, Any], cand: str, code: str) -> dict[str, Any] | None:
+    """Smallest input on which the two implementations disagree, or None."""
+    inputs = tool_probe_inputs(s, sig)
+    if not inputs:
+        return None
+    head = f"A = {cand!r}\nB = {code!r}\nENTRY = {s.entry!r}\nINPUTS = {inputs!r}\n"
+    for line in reversed(_run_script(s.env, head + _DIFF_HARNESS).splitlines()):
+        if not line.startswith("DIFF:"):
+            continue
+        try:
+            rows = json.loads(line[len("DIFF:") :])
+        except json.JSONDecodeError:
+            return None
+        bad = [r for r in rows if r.get("differ") and isinstance(r.get("i"), int) and r["i"] < len(inputs)]
+        if not bad:
+            return None
+        r = min(bad, key=lambda r: len(repr(inputs[r["i"]])))
+        return {"args": inputs[r["i"]], "a": r["a"], "b": r["b"], "n_diff": len(bad), "n": len(rows)}
+    return None
+
+
+def tool_judge_diff(s: _Session, sig: dict[str, Any], cand: str, code: str, diff: dict[str, Any]) -> dict[str, Any]:
+    call = f"{s.entry}({', '.join(repr(a) for a in diff['args'])})"
+    user = (
+        s.context()
+        + f"\nSIGNATURE: {sig['text']}\n\nIMPLEMENTATION A:\n```python\n{cand}\n```\n"
+        + f"\nIMPLEMENTATION B:\n```python\n{code}\n```\n"
+        + f"\nCALL: {call}\nRESULT OF A: {diff['a']}\nRESULT OF B: {diff['b']}\n"
+        + f"(They disagree on {diff['n_diff']} of {diff['n']} compared inputs.)\n"
+    )
+    return _llm_json(s.env, JUDGE_DIFF_SYSTEM, user, tries=1)
+
+
+def tool_resolve_differences(
+    s: _Session, sig: dict[str, Any], formal: dict[str, Any], cand: str, code: str, max_diff_questions: int
+) -> tuple[str, dict[str, Any]]:
+    """Compare the saved candidate with the final code. Ask when the clarifications do not settle a difference."""
+    for attempt in range(max_diff_questions + 1):
+        diff = tool_diff(s, sig, cand, code)
+        if not diff:
+            break
+        verdict = tool_judge_diff(s, sig, cand, code, diff)
+        if verdict.get("settled") is True:
+            if verdict.get("right") == "A":  # the clarifications back the candidate: correct the final code once
+                call = f"{s.entry}({', '.join(repr(a) for a in diff['args'])})"
+                code = tool_implement(
+                    s, formal,
+                    f"\nFor the call {call} the correct result is {diff['a']}, not {diff['b']}.\nPREVIOUS CODE:\n{code}\n",
+                )
+            break
+        q = verdict.get("question")
+        if attempt >= max_diff_questions or not s.can_ask() or not isinstance(q, str) or "?" not in q:
+            break
+        if not s.ask_robust(_open(s.env, _one_question(q))):
+            break
+        formal = tool_formalise(s, sig)
+        code = tool_implement(s, formal)
+    return code, formal
+
 _NAGINI_HEADER = "from nagini_contracts.contracts import *\nfrom typing import List, Dict, Set, Tuple, Optional\n\n"
 
 
@@ -552,6 +876,8 @@ def tool_nagini(code: str, entry: str, formal: dict[str, Any], timeout: int = 12
         return {"status": "verified", "output": out}
     if re.search(r"not supported|unsupported|type error|invalid program|could not|unrecognized arguments|usage:", out, re.I):
         return {"status": "inconclusive", "output": out}
+    if re.search(r"nagini_translation|AttributeError|NoneType|KeyError|IndexError|AssertionError|RecursionError", out):
+        return {"status": "inconclusive", "output": out}
     return {"status": "failed", "output": out}
 
 
@@ -583,24 +909,38 @@ def tool_diagnose(s: _Session, formal: dict[str, Any], code: str, failures: list
 
 class SpecGuidedClarification(ClarificationAlgorithmBase):
     def run(self, env: ClarificationEnvironment, problem: dict[str, Any]) -> str:
-        max_q = int(self.config.get("max_questions", 3))
+        max_q = int(self.config.get("max_questions", 7))
         max_sig_q = int(self.config.get("max_signature_questions", 2))
         max_repairs = int(self.config.get("max_repairs", 2))
-        use_nagini = bool(self.config.get("use_nagini", True))
+        use_gate = bool(self.config.get("use_quality_gate", False))
+        use_nagini = bool(self.config.get("use_nagini", False))
+        use_diff = bool(self.config.get("use_diff", False))
+        max_diff_q = int(self.config.get("max_diff_questions", 1))
+        evolve_task_description = self.config.get("evolve_description", True)
 
-        s = _Session(env, problem, max_q)
+        s = _Session(env, problem, max_q, evolve=bool(evolve_task_description))
         header = _header_from_prompt(s.prompt, s.entry)
         strict = _looks_specified(s.prompt)
 
         # 1) signature first; ask an open question on serious doubt
-        sig = tool_extract_signature(s, header, strict, max_sig_q)
+        sig = tool_extract_signature(s, header, max_sig_q)
 
-        # 2) formalise; ask open questions about the most uncertain decisions; re-formalise with each answer
+        # 1b) save an independent first implementation (task + signature + clarifications so far)
+        candidate = tool_candidate(s, sig) if use_diff else None
+
+        # 2) formalise; the judge verdict decides whether to ask, the issue type decides how
         formal = tool_formalise(s, sig)
+        asked: list[str] = []
         while s.can_ask():
-            q = pick_question(env, formal, strict, [q for q, _ in s.qa])
+            if use_gate and formal["assessment"]["verdict"] == "correct":
+                break
+            u = pick_uncertainty(formal, strict, asked)
+            if not u:
+                break
+            q = make_question(s, str(u.get("category", "")), formal["assessment"], u)
             if not q or not s.ask_robust(_open(env, q)):
                 break
+            asked.append(str(u.get("assumed", "")))
             formal = tool_formalise(s, sig)
 
         # 3) implement and check adherence to explicit statements
@@ -613,7 +953,11 @@ class SpecGuidedClarification(ClarificationAlgorithmBase):
                 s, formal, "\nFIX THESE PROBLEMS IN YOUR PREVIOUS ATTEMPT:\n- " + "\n- ".join(violations) + f"\nPREVIOUS CODE:\n{code}\n"
             )
 
-        # 4) verify with Nagini; diagnose and repair against its output
+        # 3b) compare the final code with the saved candidate; ask when the difference is not settled
+        if candidate:
+            code, formal = tool_resolve_differences(s, sig, formal, candidate, code, max_diff_q)
+
+        # 4) verify with Nagini (unchanged)
         report = tool_verify(code, s.entry, formal, use_nagini)
         best = (_score(report), code)
 
