@@ -1,6 +1,8 @@
-"""Tests for the determinism options of clarify/algorithms/laaser_pinpoint_smt_3.py:
-`decision_votes` (ASK/CODE by majority of sampled audits) and `question_choice="consensus"`
-(the question most audits agree on, chosen without another sampled call).
+"""Tests for the options of clarify/algorithms/laaser_pinpoint_smt_3.py added on top of v7:
+`decision_votes` (ASK/CODE by majority of sampled audits), `question_choice="consensus"`
+(the question most audits agree on, chosen without another sampled call) and `spec_rewrite`
+(code from the task rewritten with the user's answer folded in) and `resolve_defects` (explicit,
+voted decisions on the audit's other defects, with z3 checking readings against the examples).
 
 Offline, no network/Docker: the LLM replies are scripted.
 """
@@ -10,10 +12,16 @@ from __future__ import annotations
 import itertools
 import unittest
 
+from clarify.algorithms import laaser_pinpoint_smt_3
 from clarify.algorithms.laaser_pinpoint_smt_3 import (
     LAASeR_PinpointSMT,
     consensus_question,
+    example_verdicts,
     majority_decision,
+    parse_points,
+    resolve_defects,
+    rewrite_spec,
+    vote_points,
 )
 
 TASK = {
@@ -136,6 +144,148 @@ class VotedRunTest(unittest.TestCase):
         _algo(question_samples=3, question_choice="consensus").run(env, TASK)
         self.assertIn("greater than", env.questions[0])
         self.assertEqual(len(env.prompts), 4)  # no judge call
+
+
+STUB = {
+    "prompt": (
+        "def count_greater(arr, k):\n"
+        '    """Count the elements of arr that are greater than k.\n'
+        "    >>> count_greater([1, 5, 7], 5)\n"
+        "    1\n"
+        '    """\n'
+    ),
+    "entry_point": "count_greater",
+}
+SPEC = (
+    "def count_greater(arr, k):\n"
+    '    """Count the elements of arr that are greater than or equal to k.\n'
+    "    >>> count_greater([1, 5, 7], 5)\n"
+    "    2\n"
+    '    """\n'
+)
+
+
+def spec_reply(spec: str) -> str:
+    return f"SPEC_START\n{spec}\nSPEC_END\n"
+
+
+class SpecRewriteTest(unittest.TestCase):
+    def test_the_rewrite_is_kept_when_it_keeps_the_signature(self):
+        env = _FakeEnv([spec_reply(SPEC)])
+        self.assertEqual(rewrite_spec(env, STUB, STRICT, "Counted."), SPEC.strip("\n"))
+        self.assertIn("signature exactly as written: def count_greater(arr, k):", env.prompts[0])
+
+    def test_a_rewrite_that_changes_the_signature_is_dropped(self):
+        env = _FakeEnv([spec_reply(SPEC.replace("(arr, k)", "(numbers, k)"))])
+        self.assertIsNone(rewrite_spec(env, STUB, STRICT, "Counted."))
+
+    def test_a_rewrite_without_markers_or_entry_point_is_dropped(self):
+        self.assertIsNone(rewrite_spec(_FakeEnv(["Here it is: ..."]), TASK, STRICT, "Counted."))
+        self.assertIsNone(
+            rewrite_spec(_FakeEnv([spec_reply("Count big things.")]), TASK, STRICT, "Counted.")
+        )
+
+    def test_the_code_is_written_from_the_rewritten_task(self):
+        env = _FakeEnv([ask(STRICT), spec_reply(SPEC), CODE_REPLY])
+        result = _algo(spec_rewrite=True).run(env, STUB)
+        self.assertIn("x >= k", result)
+        self.assertIn("greater than or equal to k", env.prompts[2])  # the coding prompt
+        self.assertIn("Answer: Counted.", env.prompts[2])  # the answer stays attached
+
+    def test_an_unusable_rewrite_falls_back_to_the_task(self):
+        env = _FakeEnv([ask(STRICT), "no markers", CODE_REPLY])
+        _algo(spec_rewrite=True).run(env, STUB)
+        self.assertIn("greater than k.", env.prompts[2])
+
+    def test_no_rewrite_without_a_real_answer(self):
+        env = _FakeEnv([ask(STRICT), CODE_REPLY], answer="Please ask one question at a time.")
+        _algo(spec_rewrite=True).run(env, STUB)
+        self.assertEqual(len(env.prompts), 2)  # audit and code, no rewrite call
+
+    def test_off_by_default(self):
+        self.assertFalse(LAASeR_PinpointSMT.DEFAULT_CONFIG["spec_rewrite"])
+        env = _FakeEnv([ask(STRICT), CODE_REPLY])
+        _algo().run(env, STUB)
+        self.assertEqual(len(env.prompts), 2)
+
+
+HAS_Z3 = laaser_pinpoint_smt_3.z3 is not None
+PLUS_ONE = "(define-fun f ((x Int)) Int (+ x 1))"
+TWICE = "(define-fun f ((x Int)) Int (* x 2))"
+AMBIGUITY = {"quote": "grow", "A": "add one", "B": "double", "def_A": PLUS_ONE, "def_B": TWICE}
+TWO_DEFECTS = (
+    "STEP 1 - DEFECTS\n"
+    '- VAGUE | "greater than" | reading A: strictly | reading B: or equal | IMPACT: HIGH\n'
+    '- MISSING | "not stated" | reading A: [] gives 0 | reading B: [] raises | IMPACT: HIGH\n'
+    "STEP 2 - DECISION\nDECISION: ASK\n"
+)
+
+
+class ExampleVerdictTest(unittest.TestCase):
+    @unittest.skipUnless(HAS_Z3, "z3-solver not installed")
+    def test_z3_evaluates_both_readings_on_the_examples(self):
+        examples = [{"args": (3,), "expected": 4}, {"args": (0,), "expected": 1}]
+        (verdict,) = example_verdicts([], [AMBIGUITY], examples)
+        self.assertEqual(verdict["fits_A"], (2, 2))
+        self.assertEqual(verdict["fits_B"], (0, 2))
+
+    @unittest.skipUnless(HAS_Z3, "z3-solver not installed")
+    def test_examples_that_do_not_fit_the_sorts_are_skipped(self):
+        self.assertEqual(example_verdicts([], [AMBIGUITY], [{"args": ("a",), "expected": 1}]), [])
+
+    def test_nothing_without_examples(self):
+        self.assertEqual(example_verdicts([], [AMBIGUITY], []), [])
+
+
+class ResolveTest(unittest.TestCase):
+    def test_points_are_parsed_leniently(self):
+        reply = (
+            "POINT 1: A | ANSWER | count only elements strictly greater than k\n"
+            "**POINT 2: B** | Examples | raise ValueError on an empty list\n"
+            "POINT 9: A | CONVENTION | out of range\n"
+        )
+        points = parse_points(reply, 2)
+        self.assertEqual(points[0][0], "A")
+        self.assertEqual(points[1], ("B", "EXAMPLE", "raise ValueError on an empty list"))
+        self.assertNotIn(8, points)
+
+    def test_only_strict_majorities_are_kept(self):
+        a = {0: ("A", "ANSWER", "strict"), 1: ("A", "CONVENTION", "zero for empty")}
+        b = {0: ("A", "ANSWER", "strict!"), 1: ("B", "CONVENTION", "raise for empty")}
+        self.assertEqual(vote_points([a, b, a], 2), ["- strict", "- zero for empty"])
+        self.assertEqual(vote_points([a, b], 2), ["- strict"])  # 1-1 on point 2: undecided
+
+    def test_drop_becomes_an_instruction_to_ignore(self):
+        self.assertEqual(
+            vote_points([{0: ("DROP", "CONVENTION", "the O(1) rule")}], 1),
+            ["- Ignore: the O(1) rule"],
+        )
+
+    def test_resolve_votes_over_samples(self):
+        reply = "POINT 1: A | ANSWER | strict\nPOINT 2: A | CONVENTION | return 0 for []\n"
+        env = _FakeEnv([reply, reply, reply])
+        block = resolve_defects(env, TASK, TWO_DEFECTS, STRICT, "Counted.", 3)
+        self.assertIn("- return 0 for []", block)
+        self.assertEqual(len(env.prompts), 3)  # no examples: no formalization call
+
+    def test_a_single_defect_needs_no_resolution(self):
+        env = _FakeEnv([])
+        self.assertEqual(resolve_defects(env, TASK, ask(STRICT), STRICT, "Counted.", 3), "")
+        self.assertEqual(env.prompts, [])
+
+    def test_decisions_reach_the_coder_and_the_spec(self):
+        reply = "POINT 1: A | ANSWER | strict\nPOINT 2: A | CONVENTION | return 0 for []\n"
+        audit = TWO_DEFECTS + f"QUESTION: {STRICT}\n"
+        readings = ["no formalization"] if HAS_Z3 else []  # STUB has an example
+        env = _FakeEnv([audit, *readings, reply, spec_reply(SPEC), CODE_REPLY])
+        _algo(resolve_defects=True, resolve_votes=1, spec_rewrite=True).run(env, STUB)
+        rewrite, code = env.prompts[-2], env.prompts[-1]
+        self.assertIn("SPEC_START", rewrite)
+        self.assertIn("return 0 for []", rewrite)  # the rewrite sees the decisions
+        self.assertIn("return 0 for []", code)  # and so does the coder
+
+    def test_off_by_default(self):
+        self.assertFalse(LAASeR_PinpointSMT.DEFAULT_CONFIG["resolve_defects"])
 
 
 if __name__ == "__main__":

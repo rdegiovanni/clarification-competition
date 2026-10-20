@@ -195,6 +195,78 @@ Question: {question}
 Answer: {answer}
 """
 
+# After a real answer, the task can be rewritten into one specification that already contains
+# the answer, instead of appending the question and answer under the original text. The
+# organizers' DualFix study (arXiv 2607.05121) found rewriting the statement with new
+# information fixes 2-3x more failures than appending it; here the new information is the
+# user's answer, and an appended answer is what the coder still misreads (Mbpp/368).
+SPEC_TEMPLATE = """
+A user wrote the Python task below. It may be vague or contradictory, so you asked them one
+clarifying question. Their answer is authoritative.
+
+Task:
+<<<
+{prompt}
+>>>
+Question: {question}
+Answer: {answer}
+{decisions}
+Rewrite the task as ONE precise specification that a programmer can implement without seeing
+the question or the answer:
+- State the behaviour the answer (and any decided point above) fixes explicitly, in the place
+  where the task was unclear.
+- Keep everything else the task says, its wording where possible, and its numbers.
+- Keep the function name `{entry_point}`{signature_rule}.
+- Keep the examples; correct an example only if the answer contradicts it, and add one example
+  of the clarified behaviour if the task has none for it.
+- Do not add requirements that neither the task nor the answer states.
+Write only the rewritten task between the lines SPEC_START and SPEC_END.
+""".strip()
+SPEC_PATTERN = re.compile(r"SPEC_START\s*\n(.*?)\n\s*SPEC_END", re.S)
+SIGNATURE_LINE = re.compile(r"^\s*def\s+(\w+)\s*\(.*$", re.M)
+
+
+def rewrite_spec(
+    env: ClarificationEnvironment,
+    problem: dict[str, Any],
+    question: str,
+    answer: str,
+    decisions: str = "",
+) -> str | None:
+    """The task rewritten with the answer folded in, or None when the rewrite is unusable: it
+    must keep the entry point and, if the task has one, its exact `def` line. Never raises."""
+    prompt, entry_point = problem["prompt"], problem["entry_point"]
+    signatures = [
+        line.strip()
+        for line in (m.group(0) for m in SIGNATURE_LINE.finditer(prompt))
+        if re.match(rf"\s*def\s+{re.escape(entry_point)}\s*\(", line)
+    ]
+    signature_rule = f" and its signature exactly as written: {signatures[0]}" if signatures else ""
+    try:
+        response = env.llm(
+            _fill(
+                SPEC_TEMPLATE,
+                prompt=prompt,
+                question=question,
+                answer=answer,
+                decisions=decisions,
+                entry_point=entry_point,
+                signature_rule=signature_rule,
+            )
+        )
+    except Exception:
+        return None
+    match = SPEC_PATTERN.search(response or "")
+    if not match:
+        return None
+    spec = match.group(1).strip("\n")
+    if entry_point not in spec or len(spec) > 4 * len(prompt) + 2000:
+        return None
+    if signatures and signatures[0] not in spec:
+        return None
+    return spec
+
+
 NO_ANSWER_BLOCK = """
 You asked the user a clarifying question but got no usable answer. Decide every unclear point
 yourself: choose the most logical, standard behaviour for a function with this name and purpose.
@@ -1641,46 +1713,253 @@ def interpretation_question(result: dict[str, Any], entry_point: str) -> str:
     return question[:MAX_QUESTION_LENGTH]
 
 
+def formalize_readings(
+    env: ClarificationEnvironment, problem: dict[str, Any], defects: list[str]
+) -> tuple[list[str], list[dict[str, Any]], list[str] | None]:
+    """(HELPER definitions, formalized ambiguities, parameter sorts or None) for the audit's
+    defects: one READINGS_TEMPLATE call. Raises on LLM failure; callers guard it."""
+    prompt, entry_point = problem["prompt"], problem["entry_point"]
+    parameter_sorts = None
+    examples = extract_examples(prompt, entry_point)
+    signature = infer_signature(prompt, entry_point, examples) if examples else None
+    stub = stub_annotations(prompt, entry_point)
+    if signature is not None:
+        parameter_sorts = signature["arg_sorts"]
+    elif stub is not None and stub[1] and all(_complete(hint_sort(h)) for h in stub[1]):
+        parameter_sorts = [hint_sort(h) for h in stub[1]]
+    parameters = ""
+    names = signature["names"] if signature is not None else (stub[0] if stub else None)
+    if parameter_sorts is not None and names is not None:
+        parameters = "- The parameters are, in order: " + ", ".join(
+            f"{n} {s}" for n, s in zip(names, parameter_sorts, strict=True)
+        )
+    response = env.llm(
+        _fill(
+            READINGS_TEMPLATE,
+            prompt=prompt,
+            entry_point=entry_point,
+            defects="\n".join(f"- {d}" for d in defects),
+            parameters=parameters,
+        )
+    )
+    helpers, ambiguities = parse_readings(response, prompt)
+    return helpers, ambiguities, parameter_sorts
+
+
 def find_interpretation_conflict(
     env: ClarificationEnvironment, problem: dict[str, Any], audit: str, audit_question: str | None
 ) -> dict[str, Any] | None:
     """The whole interpretation step. Never raises: any failure means "keep the audit's"."""
-    prompt, entry_point = problem["prompt"], problem["entry_point"]
     try:
         defects = audit_defects(audit)
         if z3 is None or not defects:
             return None
-        parameter_sorts = None
-        examples = extract_examples(prompt, entry_point)
-        signature = infer_signature(prompt, entry_point, examples) if examples else None
-        stub = stub_annotations(prompt, entry_point)
-        if signature is not None:
-            parameter_sorts = signature["arg_sorts"]
-        elif stub is not None and stub[1] and all(_complete(hint_sort(h)) for h in stub[1]):
-            parameter_sorts = [hint_sort(h) for h in stub[1]]
-        parameters = ""
-        names = signature["names"] if signature is not None else (stub[0] if stub else None)
-        if parameter_sorts is not None and names is not None:
-            parameters = "- The parameters are, in order: " + ", ".join(
-                f"{n} {s}" for n, s in zip(names, parameter_sorts, strict=True)
-            )
-        response = env.llm(
-            _fill(
-                READINGS_TEMPLATE,
-                prompt=prompt,
-                entry_point=entry_point,
-                defects="\n".join(f"- {d}" for d in defects),
-                parameters=parameters,
-            )
-        )
-        helpers, ambiguities = parse_readings(response, prompt)
+        helpers, ambiguities, parameter_sorts = formalize_readings(env, problem, defects)
         results = analyse_readings(helpers, ambiguities, parameter_sorts)
         chosen = choose_ambiguity(results, audit_question)
         if chosen is None:
             return None
-        return {**chosen, "question": interpretation_question(chosen, entry_point)}
+        return {**chosen, "question": interpretation_question(chosen, problem["entry_point"])}
     except Exception:
         return None
+
+
+# =================================================================================================
+# Resolving the defects the question did not cover. One clarification turn settles one hidden
+# requirement; on smoke-70 (v7) tasks with one requirement passed 22/23, tasks with two or more
+# 10/24: the unasked points were left for the coder to guess silently, and at temperature 0.7
+# differently each run. Here every remaining defect of the audit gets an explicit decision,
+# backed by evidence in a fixed order -- the user's answer, the task's examples (checked by z3
+# when the readings can be formalized), then the conventional behaviour -- voted over a few
+# samples, and the decisions go into the specification the code is written from.
+# =================================================================================================
+
+MAX_EXAMPLE_CHECKS = 16
+
+
+def example_verdicts(
+    helpers: list[str], ambiguities: list[dict[str, Any]], examples: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """For each formalized ambiguity, how many of the task's examples each reading reproduces:
+    z3 evaluates fa(args) == expected on concrete arguments (an exact evaluation: unsat of the
+    negation means the reading returns exactly the expected value). Examples whose values do not
+    fit the sorts are skipped. Never raises; [] without z3."""
+    if z3 is None or not examples:
+        return []
+    deadline = time.monotonic() + SOLVER_BUDGET_S
+    checks = [0]
+
+    def holds(script: str) -> bool | None:
+        if checks[0] >= MAX_EXAMPLE_CHECKS or time.monotonic() > deadline:
+            return None
+        checks[0] += 1
+        ctx = z3.Context()
+        try:
+            solver = z3.Solver(ctx=ctx)
+            solver.set("timeout", SOLVER_TIMEOUT_MS)
+            solver.add(*z3.parse_smt2_string(script, ctx=ctx))
+            result = solver.check()
+        except z3.Z3Exception:
+            return None
+        if result == z3.unsat:
+            return True
+        if result == z3.sat:
+            return False
+        return None
+
+    prefix = "".join(
+        _renamed(h, definition_signature(h)[0], definition_signature(h)[0])
+        for h in helpers
+        if definition_signature(h)
+    )
+    verdicts = []
+    for k, ambiguity in enumerate(ambiguities):
+        sig_a = definition_signature(ambiguity["def_A"])
+        sig_b = definition_signature(ambiguity["def_B"])
+        if not sig_a or not sig_b or sig_a[1:] != sig_b[1:]:
+            continue
+        sorts, result_sort = sig_a[1], sig_a[2]
+        definitions = {
+            "A": _renamed(ambiguity["def_A"], sig_a[0], f"reading_a{k}"),
+            "B": _renamed(ambiguity["def_B"], sig_b[0], f"reading_b{k}"),
+        }
+        fits = {"A": [0, 0], "B": [0, 0]}  # [reproduced, checked]
+        for example in examples:
+            if len(example["args"]) != len(sorts):
+                continue
+            terms = [smt_value(v, s) for v, s in zip(example["args"], sorts, strict=True)]
+            expected = smt_value(example["expected"], result_sort)
+            if expected is None or any(t is None for t in terms):
+                continue
+            for side in ("A", "B"):
+                name = f"reading_{side.lower()}{k}"
+                call = f"({name} {' '.join(terms)})" if terms else name
+                verdict = holds(
+                    prefix + definitions[side] + f"(assert (not (= {call} {expected})))"
+                )
+                if verdict is not None:
+                    fits[side][0] += verdict
+                    fits[side][1] += 1
+        if fits["A"][1] and fits["B"][1]:
+            verdicts.append({**ambiguity, "fits_A": tuple(fits["A"]), "fits_B": tuple(fits["B"])})
+    return verdicts
+
+
+def _verdict_lines(verdicts: list[dict[str, Any]]) -> str:
+    lines = []
+    for v in verdicts:
+        (a_ok, a_n), (b_ok, b_n) = v["fits_A"], v["fits_B"]
+        if (a_ok == a_n) == (b_ok == b_n):
+            continue  # the examples do not separate the two readings
+        lines.append(
+            f'- "{v["quote"] or "not stated"}": reading "{v["A"]}" reproduces {a_ok} of {a_n} '
+            f'checked examples; reading "{v["B"]}" reproduces {b_ok} of {b_n}.'
+        )
+    return "\n".join(lines)
+
+
+RESOLVE_TEMPLATE = """
+Task:
+<<<
+{prompt}
+>>>
+You asked the user one clarifying question; their answer is authoritative.
+Question: {question}
+Answer: {answer}
+
+An audit found these unclear points in the task:
+{defects}
+{evidence}
+Decide every point, using this order of evidence:
+1. ANSWER: the answer settles the point, directly or by implication.
+2. EXAMPLES: only one reading is consistent with the task's examples (and with the solver
+   checks above, which evaluated both readings on the examples exactly).
+3. CONVENTION: the behaviour a careful programmer expects from a function with this name,
+   signature and purpose. When one reading is the conventional behaviour and the other an
+   unusual addition, choose the conventional one. Requirements tests cannot observe (time
+   complexity, "no loops", style) are DROP.
+For each point write exactly one line:
+POINT <number>: <A, B or DROP> | <ANSWER, EXAMPLES or CONVENTION> | <the behaviour to implement, one short clause>
+""".strip()
+POINT_PATTERN = re.compile(
+    r"POINT\s*(\d+)\s*:\s*\**\s*(A|B|DROP)\b[^|\n]*\|\s*(ANSWER|EXAMPLES?|CONVENTION)\w*\s*\|\s*(.+)",
+    re.I,
+)
+RESOLVED_BLOCK = """
+Points the answer did not mention, decided from the task's evidence (follow them unless the
+answer says otherwise):
+{decisions}
+"""
+
+
+def parse_points(response: str, count: int) -> dict[int, tuple[str, str, str]]:
+    """{point index: (choice, evidence, clause)} for well-formed lines about known points."""
+    points: dict[int, tuple[str, str, str]] = {}
+    for number, choice, evidence, clause in POINT_PATTERN.findall(response or ""):
+        index = int(number) - 1
+        if 0 <= index < count and index not in points:
+            points[index] = (choice.upper(), evidence.upper().rstrip("S"), clause.strip())
+    return points
+
+
+def vote_points(samples: list[dict[int, tuple[str, str, str]]], count: int) -> list[str]:
+    """One clause per point whose choice a strict majority of the samples agree on (the clause
+    of the first sample with that choice); points without a majority are left out."""
+    decisions = []
+    for index in range(count):
+        choices = [s[index][0] for s in samples if index in s]
+        if not choices:
+            continue
+        best = max(sorted(set(choices)), key=choices.count)
+        if choices.count(best) * 2 <= len(samples):
+            continue
+        clause = next(s[index][2] for s in samples if index in s and s[index][0] == best)
+        decisions.append(f"- {'Ignore: ' if best == 'DROP' else ''}{clause}")
+    return decisions
+
+
+def resolve_defects(
+    env: ClarificationEnvironment,
+    problem: dict[str, Any],
+    audit: str,
+    question: str,
+    answer: str,
+    votes: int,
+) -> str:
+    """RESOLVED_BLOCK with the voted decisions on the audit's defects, or "" when there is
+    nothing to decide or no majority. Never raises."""
+    try:
+        defects = audit_defects(audit)
+        if len(defects) < 2:
+            return ""  # a single defect is the one the question asked about
+        evidence = ""
+        examples = extract_examples(problem["prompt"], problem["entry_point"])
+        if z3 is not None and examples:
+            try:
+                helpers, ambiguities, _ = formalize_readings(env, problem, defects)
+                lines = _verdict_lines(example_verdicts(helpers, ambiguities, examples))
+                if lines:
+                    evidence = "Solver checks on the task's examples:\n" + lines + "\n"
+            except Exception:
+                evidence = ""
+        prompt = _fill(
+            RESOLVE_TEMPLATE,
+            prompt=problem["prompt"],
+            question=question,
+            answer=answer,
+            defects="\n".join(f"{n}. {d}" for n, d in enumerate(defects, 1)),
+            evidence=evidence,
+        )
+        samples = []
+        for _ in range(max(int(votes), 1)):
+            try:
+                samples.append(parse_points(env.llm(prompt), len(defects)))
+            except Exception:
+                break  # e.g. the budget is spent
+        decisions = vote_points(samples, len(defects)) if samples else []
+        return _fill(RESOLVED_BLOCK, decisions="\n".join(decisions)) if decisions else ""
+    except Exception:
+        return ""
 
 
 # =================================================================================================
@@ -2428,6 +2707,16 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # applying README's criteria) or "consensus" (the question most audits agree on, no
         # extra call, the same choice for the same samples).
         "question_choice": "judge",
+        # After a real answer, rewrite the task into one specification with the answer folded
+        # in (SPEC_TEMPLATE) and code, check and repair from it; the question and answer stay
+        # attached. Falls back to the task when the rewrite drops the entry point or signature.
+        "spec_rewrite": False,
+        # After a real answer, decide every other defect the audit listed (answer, then the
+        # task's examples checked by z3, then convention), by majority over resolve_votes
+        # samples; the decisions are attached to the coding prompt and, with spec_rewrite,
+        # folded into the specification.
+        "resolve_defects": False,
+        "resolve_votes": 3,
         # Show the audit, as an optional reference, typical shape questions for the data
         # structures the task mentions (tuples: pair or N-tuple, flat or nested result; trees:
         # binary or N-ary; ...) and ask for shape/format questions with literal readings.
@@ -2449,10 +2738,10 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         prompt = problem["prompt"]
         entry_point = problem["entry_point"]
         rules = _rules(entry_point)
-        candidate, clarification, answered = "", "", False
+        candidate, clarification, answered, coding_problem = "", "", False, problem
 
         try:
-            candidate, clarification, answered = self.solve(env, problem, rules)
+            candidate, clarification, answered, coding_problem = self.solve(env, problem, rules)
         except (TooManyQuestionException, LimitsExceededException):
             pass
         except Exception:
@@ -2471,7 +2760,7 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         if self.config["verify"] and not _is_placeholder(candidate, entry_point):
             candidate = verify_by_execution(
                 env,
-                problem,
+                coding_problem,  # the rewritten specification, when there is one
                 candidate,
                 clarification,
                 answered,
@@ -2551,9 +2840,11 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
 
     def solve(
         self, env: ClarificationEnvironment, problem: dict[str, Any], rules: str
-    ) -> tuple[str, str, bool]:
+    ) -> tuple[str, str, bool, dict[str, Any]]:
         """(code, the clarification text the code was written with -- empty, the no-answer note,
-        or the question with the user's answer --, whether the user really answered)."""
+        or the question with the user's answer --, whether the user really answered, the problem
+        the code was written from: the task, or with `spec_rewrite` the task rewritten with the
+        answer)."""
         prompt = problem["prompt"]
         entry_point = problem["entry_point"]
         audit_prompt = _fill(
@@ -2590,7 +2881,7 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
 
         if decision == "CODE" or (decision is None and question is None):
             candidate = _check_code(audit, entry_point)[0] or ""
-            return _finalize(env, problem, audit, "") or candidate, "", False
+            return _finalize(env, problem, audit, "") or candidate, "", False, problem
 
         answer = None
         if question:
@@ -2614,12 +2905,30 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             clarification = NO_ANSWER_BLOCK
         else:
             clarification = _clarification_block(question, answer)
+        coding_problem = problem
+        if answered and self.config["resolve_defects"]:
+            decisions = resolve_defects(
+                env, problem, audit, question, answer, int(self.config["resolve_votes"])
+            )
+            clarification += decisions
+        else:
+            decisions = ""
+        if answered and self.config["spec_rewrite"]:
+            spec = rewrite_spec(env, problem, question, answer, decisions)
+            if spec is not None:
+                coding_problem = {**problem, "prompt": spec}
         response = env.llm(
-            _fill(CODE_TEMPLATE, prompt=prompt, clarification=clarification, rules=rules)
+            _fill(
+                CODE_TEMPLATE,
+                prompt=coding_problem["prompt"],
+                clarification=clarification,
+                rules=rules,
+            )
         )
         candidate = _check_code(response, entry_point)[0] or ""
         return (
-            _finalize(env, problem, response, clarification) or candidate,
+            _finalize(env, coding_problem, response, clarification) or candidate,
             clarification,
             answered,
+            coding_problem,
         )

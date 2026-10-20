@@ -233,6 +233,18 @@ Every entry: what changed, why, which script/run measured it, before → after.
   the one asked. Over-asking (87.5%) costs ~0.008 TDS. The z3 layers run only when the audit
   codes, i.e. in ~3 of 70 tasks. Full write-up: `docs/v7-failure-analysis.md`.
 
+### 2026-10-20 — smt_3: voting, spec rewrite, defect resolver (all off by default)
+
+- **Determinism** (22 flaky smoke tasks, `results/flaky_sets/`, 2 runs each): v7 defaults 8
+  tasks flip, 15/15 passed; `--decision_votes 5 --question_choice consensus --candidates 5`
+  4 flip, 14/16 passed, cost $0.0042 → $0.0065/task.
+- **Combo** on smoke-70 (`combo-resolve-r1`: voting + consensus + `spec_rewrite` +
+  `resolve_defects`): TDS 0.6464 (47/70) vs. v7 0.6739 (49/70), $0.0082/task. Tasks with 2
+  hidden requirements 7 → 9 of 13, with 1 requirement 22 → 19 of 23. `consensus` picked bundled
+  questions (QUALITY=1 answers 5 → 8, nDCG 0.886 → 0.843); the judge filters them.
+- **Hidden requirements per task vs. pass** (v7): 1 requirement 22/23, 2+: 10/24 — the ceiling
+  of one clarification turn.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for
