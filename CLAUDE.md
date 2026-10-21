@@ -262,7 +262,8 @@ Every entry: what changed, why, which script/run measured it, before → after.
 - **Result**: TDS 0.5955, 43/70, nDCG 0.671, $0.0022/task vs. v7 0.62-0.70 (45-51 passed).
 - **Reading it**: its questions are bundled or ask for test cases (QUALITY=1 answers 12 vs. 5-6);
   it loses mostly on 1-requirement tasks. Table in `docs/v7-failure-analysis.md`.
-- **Follow-up**: with v7's question rules and an entry-point alias (the code sometimes
+- **Follow-up** (`genetic_spec_improvement_v7q.py`, the original file is unchanged): with v7's
+  question rules and an entry-point alias (the code sometimes
   named the function `candidate`): 39 then 41/70, nDCG 0.786 / 0.743; still below v7's worst run.
 
 ## Repo layout cheat-sheet

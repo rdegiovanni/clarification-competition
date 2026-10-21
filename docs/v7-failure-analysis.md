@@ -168,6 +168,10 @@ forces a quoted phrase, competing readings and one fact. Its judge also skipped 
 
 #### Follow-up: the genetic algorithm with v7's question rules and an entry-point alias
 
+This variant lives in `clarify/algorithms/genetic_spec_improvement_v7q.py` (class
+`GeneticSpecClarificationV7Q`); `genetic_spec_improvement.py` stays the team's original. The
+`genetic-v7q-s70-r1` run had the question rules only, before the alias was added.
+
 | Genetic | TDS | Passed | MBPP | HumanEval | nDCG | QUALITY=1 | NameError |
 |---|---|---|---|---|---|---|---|
 | original (`genetic-val-s70-r1`) | 0.5955 | 43 | 21 | 22 | 0.671 | 12 | 0 |

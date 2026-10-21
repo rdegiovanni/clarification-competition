@@ -58,9 +58,7 @@ Use issue_type "none" if and only if verdict is "correct".
 TASK DESCRIPTION:
 """
 
-QUESTION_PROMPT = """You help clarify a programming-task description by asking the user ONE question.
-The description may have been edited so that it is vague, incomplete or self-contradictory;
-hidden tests compare the function's return values with the behaviour the user really intends.
+QUESTION_PROMPT = """You help clarify a buggy programming-task description by asking the user ONE question.
 
 Task description:
 {spec}
@@ -74,23 +72,15 @@ Judge findings (may be noisy):
 Previously asked (do not repeat):
 {history}
 
-First, for yourself, list every place where the description does not uniquely determine the
-return values: a CONTRADICTION (two statements, or a statement and an example / signature /
-type hint, that cannot both hold), a VAGUE word whose interpretation changes the output, a
-MISSING rule (the arguments and their structure, the return type or format, a formula, a
-threshold, a tie-break, the result for a special input), or an ODD extra requirement. Each has
-two readings; it matters when they return different values on ordinary inputs. Requirements
-tests cannot observe (time complexity, "no loops", style) never matter.
+Write ONE clarifying question that satisfies ALL of:
+- Critical: it resolves a real blocker to a correct implementation.
+- Not guessable: the answer cannot be reliably inferred by convention.
+- Atomic: it targets exactly one requirement.
+- Objective: it admits a single unambiguous answer. Where possible, give concrete
+  alternatives or a concrete input with the output you would expect.
+- No leakage: do not ask about implementation details, algorithms, or hidden tests.
 
-Then ask about the place that would make the most tests fail (contradictions and the return
-format first, then missing rules and vague terms, edge cases last). Quote or name the phrase
-and offer the competing readings, so that the complete answer is exactly one fact. Example:
-The task says "a frequency similar to the value" - should the frequency be exactly equal
-to the value, or at least the value?
-Ask about one thing only, never ask for test cases, expected outputs or the implementation, and
-do not use backticks.
-
-If no place matters, return {{"question": null}}.
+If the description is already sufficient, return {{"question": null}}.
 Answer ONLY with JSON: {{"question": "<text or null>"}}"""
 
 EVOLVE_SYSTEM = """You maintain the text of a programming-task description. A user just answered a clarification
@@ -254,24 +244,6 @@ def _contract_ok(src: str, entry: str) -> bool:
                 seen_other = True
     return True
 
-def alias_entry_point(code: str, entry: str) -> str:
-    """The code, plus `entry = <name>` when it defines no top-level function called `entry`.
-
-    The evolved description can stop naming the function ("candidate is a function that
-    sums numbers"), and the model then names it freely: HumanEval/60 came back as
-    `def candidate(n)` and failed every test with NameError. The alias keeps recursion and
-    helper calls working. The last top-level function is taken (helpers usually come first).
-    """
-    try:
-        tree = ast.parse(code)
-    except SyntaxError:
-        return code
-    names = [n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    if not names or entry in names:
-        return code
-    return f"{code.rstrip()}\n\n\n{entry} = {names[-1]}\n"
-
-
 class GeneticSpecClarification(ClarificationAlgorithmBase):
     MAX_QUESTIONS = 15
     N_JUDGES = 2
@@ -433,5 +405,5 @@ class GeneticSpecClarification(ClarificationAlgorithmBase):
             prompt = IMPL_PROMPT.format(entry=entry, spec=spec)
 
         resp = self.env.llm([{"role": "user", "content": prompt}])
-        code = alias_entry_point(_code(resp) or str(resp or "").strip(), entry)
+        code = _code(resp) or str(resp or "").strip()
         return f"```python\n{code}\n```"
