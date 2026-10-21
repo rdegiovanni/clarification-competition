@@ -2633,6 +2633,147 @@ def verify_by_execution(
         return code
 
 
+# =================================================================================================
+# Choosing WHAT to ask from the model's own behaviour. With one clarification turn, the question
+# should go where the coder's prior is unsure: on smoke-70, explicit decisions derived from the
+# (perturbed) task text did worse than the coder's silent guesses (resolve_defects: 39/70 vs.
+# 45-51), so the prior is worth trusting where it is stable. A few implementations written
+# without any clarification run on the same probe calls; a call on which they return different
+# values is a concrete witness of an open point -- like the z3 witness of two readings, but on
+# real programs, for any type, and independent of whether the task text is truthful. The
+# question asks about the rule behind the most evenly split call; without a split, the audit's
+# question stands.
+# =================================================================================================
+
+MAX_WITNESS_REPR = 80
+
+DIVERGENCE_TEMPLATE = """
+Task:
+<<<
+{prompt}
+>>>
+Independent implementations of `{entry_point}`, written from this task alone, disagree on this
+call:
+{call}
+- RESULT 1: {first}
+- RESULT 2: {second}
+Explain the disagreement. Write exactly these three lines:
+PHRASE: "<the exact phrase of the task the two results read differently, or: not stated>"
+READING 1: <one short clause: the rule under which the call returns RESULT 1>
+READING 2: <one short clause: the rule under which the call returns RESULT 2>
+""".strip()
+WITNESS_PHRASE = re.compile(r"PHRASE\s*:\s*(.+)", re.I)
+WITNESS_READING = re.compile(r"READING\s*([12])\s*:\s*(.+)", re.I)
+
+
+def divergent_call(
+    reports: list[dict[str, Any] | None], count: int
+) -> tuple[int, list[tuple[str, int]]] | None:
+    """(call index, [(result repr, implementations), ...] largest first) for the call on which
+    the implementations' values split most evenly, or None when they agree on every call.
+    Only values count (VALUE or NONE): a crash is a bug, not a reading. Ties go to the earlier
+    call."""
+    usable = [r for r in reports if r is not None and not r["load_error"]]
+    best: tuple[tuple, int, list[tuple[str, int]]] | None = None
+    for index in range(count):
+        buckets: list[list[Any]] = []  # [representative result, implementations]
+        for report in usable:
+            result = report["results"][index]
+            if result[0] not in ("VALUE", "NONE"):
+                continue
+            for bucket in buckets:
+                if _same_result(bucket[0], result):
+                    bucket[1] += 1
+                    break
+            else:
+                buckets.append([result, 1])
+        if len(buckets) < 2:
+            continue
+        buckets.sort(key=lambda b: -b[1])
+        shown = [("None" if r[0] == "NONE" else r[1], n) for r, n in buckets]
+        if any(len(text) > MAX_WITNESS_REPR for text, _ in shown[:2]):
+            continue
+        strength = (min(buckets[0][1], buckets[1][1]), -len(buckets))
+        if best is None or strength > best[0]:
+            best = (strength, index, shown)
+    return None if best is None else (best[1], best[2])
+
+
+def witness_question(response: str, prompt: str, call: str, first: str, second: str) -> str:
+    """The question about a divergence witness, assembled here rather than written by the model
+    (left free, it drifted back to the audit's own defect: HumanEval/98 split on '00' vs '0'
+    and was asked about letter case). Same shape as the z3 witness questions; the model only
+    supplies the phrase and one short reading per result."""
+    readings = {n: _clean_reading(text) for n, text in WITNESS_READING.findall(response)}
+    phrase = WITNESS_PHRASE.search(response)
+    quote = phrase.group(1).strip().strip("“”\"'").strip() if phrase else ""
+    if quote.lower().startswith("not stated") or not phrase_overlap(quote, prompt):
+        quote = ""
+    lead = f'The task says "{_short(quote)}". For example, s' if quote else "For example, s"
+    one = f" ({readings['1']})" if readings.get("1") else ""
+    two = f" ({readings['2']})" if readings.get("2") else ""
+    question = f"{lead}hould {call} return {first}{one} or {second}{two}?"
+    return question.replace("`", "")[:MAX_QUESTION_LENGTH]
+
+
+def divergence_question(
+    env: ClarificationEnvironment,
+    problem: dict[str, Any],
+    audit: str,
+    rules: str,
+    samples: int,
+) -> str | None:
+    """A question about the most evenly split probe call among `samples` implementations
+    written without clarification, or None (no split, too few implementations, no sandbox
+    output). Never raises."""
+    prompt, entry_point = problem["prompt"], problem["entry_point"]
+    try:
+        codes = []
+        for _ in range(max(int(samples), 0)):
+            code, issue = _check_code(
+                env.llm(_fill(CODE_TEMPLATE, prompt=prompt, clarification="", rules=rules)),
+                entry_point,
+            )
+            if code and issue is None and not _is_placeholder(code, entry_point):
+                codes.append(code)
+        if len(codes) < 2:
+            return None
+        stub = stub_annotations(prompt, entry_point)
+        arity = len(stub[0]) if stub else None
+        probes = [
+            (example["call"], example["args"])
+            for example in extract_examples(prompt, entry_point)
+            if arity is None or len(example["args"]) == arity
+        ][:3]
+        response = env.llm(
+            _fill(PROBES_TEMPLATE, prompt=prompt, entry_point=entry_point, clarification="")
+        )
+        for text, args, _ in parse_probe_calls(response, entry_point):
+            if all(args != known for _, known in probes) and len(probes) < MAX_PROBES:
+                probes.append((text, args))
+        if not probes:
+            return None
+        reports = run_candidates(env, codes, entry_point, [args for _, args in probes])
+        found = divergent_call(reports or [], len(probes))
+        if found is None:
+            return None
+        index, shown = found
+        call = probes[index][0]
+        response = env.llm(
+            _fill(
+                DIVERGENCE_TEMPLATE,
+                prompt=prompt,
+                entry_point=entry_point,
+                call=call,
+                first=shown[0][0],
+                second=shown[1][0],
+            )
+        )
+        return witness_question(response or "", prompt, call, shown[0][0], shown[1][0])
+    except Exception:
+        return None
+
+
 def tolerate_extra_args(code: str, entry_point: str) -> str:
     """The code with `*extra_args` added to the entry point's parameters, so that a call with
     more positional arguments than the function declares (typically a trailing length `n` the
@@ -2716,6 +2857,11 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # samples; the decisions are attached to the coding prompt and, with spec_rewrite,
         # folded into the specification.
         "resolve_defects": False,
+        # Which open point the one question targets: "audit" (the audit's / judge's choice) or
+        # "divergence" (the probe call on which divergence_samples implementations written
+        # without clarification return different values; the audit's question when they agree).
+        "question_target": "audit",
+        "divergence_samples": 4,
         "resolve_votes": 3,
         # Show the audit, as an optional reference, typical shape questions for the data
         # structures the task mentions (tuples: pair or N-tuple, flat or nested result; trees:
@@ -2861,6 +3007,12 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             decision, question, _ = self.parsed_audit(audit)
             if decision == "ASK" and question:
                 question = self.choose_question(env, prompt, audit_prompt, question)
+        if question and decision != "CODE" and self.config["question_target"] == "divergence":
+            witnessed = divergence_question(
+                env, problem, audit, rules, int(self.config["divergence_samples"])
+            )
+            if witnessed:
+                question = witnessed
         coding = decision == "CODE" or question is None
         solver_first = self.config["question_source"] == "solver"
 

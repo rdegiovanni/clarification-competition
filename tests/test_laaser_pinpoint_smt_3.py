@@ -10,18 +10,22 @@ Offline, no network/Docker: the LLM replies are scripted.
 from __future__ import annotations
 
 import itertools
+import subprocess
+import sys
 import unittest
 
 from clarify.algorithms import laaser_pinpoint_smt_3
 from clarify.algorithms.laaser_pinpoint_smt_3 import (
     LAASeR_PinpointSMT,
     consensus_question,
+    divergent_call,
     example_verdicts,
     majority_decision,
     parse_points,
     resolve_defects,
     rewrite_spec,
     vote_points,
+    witness_question,
 )
 
 TASK = {
@@ -63,6 +67,12 @@ class _FakeEnv:
     def ask_human(self, query):
         self.questions.append(query)
         return self.answer
+
+    def exec_code(self, script):
+        done = subprocess.run(
+            [sys.executable, "-I", "-c", script], capture_output=True, text=True, timeout=60
+        )
+        return done.stdout + done.stderr
 
 
 def _algo(**config):
@@ -286,6 +296,72 @@ class ResolveTest(unittest.TestCase):
 
     def test_off_by_default(self):
         self.assertFalse(LAASeR_PinpointSMT.DEFAULT_CONFIG["resolve_defects"])
+
+
+def code(body: str) -> str:
+    return f"```python\ndef count_greater(arr, k):\n    return {body}\n```\n"
+
+
+STRICT_CODE, LOOSE_CODE = (
+    code("sum(1 for x in arr if x > k)"),
+    code("sum(1 for x in arr if x >= k)"),
+)
+PROBES = "CALL count_greater([1, 9], 5)\ncount_greater([7], 7)\n"
+READINGS = 'PHRASE: "greater than"\nREADING 1: only elements strictly greater\nREADING 2: elements greater or equal\n'
+WITNESS_Q = (
+    'The task says "greater than". For example, should count_greater([7], 7) return 0 '
+    "(only elements strictly greater) or 1 (elements greater or equal)?"
+)
+
+
+def report(*values):
+    return {"load_error": None, "results": [("VALUE", v) for v in values]}
+
+
+class DivergenceTest(unittest.TestCase):
+    def test_the_most_evenly_split_call_is_chosen(self):
+        reports = [report("1", "0"), report("1", "1"), report("1", "0"), report("2", "1")]
+        index, shown = divergent_call(reports, 2)
+        self.assertEqual(index, 1)  # 2-2 split beats 3-1
+        self.assertEqual(shown, [("0", 2), ("1", 2)])
+
+    def test_agreement_and_crashes_are_not_divergence(self):
+        crash = {"load_error": None, "results": [("EXC", "ZeroDivisionError: x"), ("VALUE", "1")]}
+        self.assertIsNone(divergent_call([report("1", "1"), report("1", "1"), crash], 2))
+        self.assertIsNone(
+            divergent_call([None, {"load_error": ("SyntaxError", ""), "results": []}], 1)
+        )
+
+    def test_the_question_targets_the_witness(self):
+        replies = [ask(EMPTY), STRICT_CODE, LOOSE_CODE, STRICT_CODE, LOOSE_CODE, PROBES]
+        env = _FakeEnv([*replies, READINGS, LOOSE_CODE])
+        result = _algo(question_target="divergence").run(env, TASK)
+        self.assertEqual(env.questions, [WITNESS_Q])  # assembled around the witness
+        self.assertIn("count_greater([7], 7)", env.prompts[6])
+        self.assertIn("RESULT 1: 0", env.prompts[6])
+        self.assertIn("x >= k", result)
+
+    def test_the_witness_question_survives_a_sloppy_reply(self):
+        question = witness_question("no format at all", TASK["prompt"], "f([7], 7)", "0", "1")
+        self.assertEqual(question, "For example, should f([7], 7) return 0 or 1?")
+        invented = 'PHRASE: "a phrase the task never says"\nREADING 1: a\nREADING 2: b'
+        question = witness_question(invented, TASK["prompt"], "f(1)", "'00'", "'0'")
+        self.assertEqual(question, "For example, should f(1) return '00' (a) or '0' (b)?")
+
+    def test_without_a_split_the_audit_question_stands(self):
+        replies = [ask(EMPTY), STRICT_CODE, STRICT_CODE, STRICT_CODE, STRICT_CODE, PROBES]
+        env = _FakeEnv([*replies, STRICT_CODE])
+        _algo(question_target="divergence").run(env, TASK)
+        self.assertEqual(env.questions, [EMPTY])
+        self.assertEqual(len(env.prompts), 7)  # no question-writing call
+
+    def test_a_coding_audit_samples_nothing(self):
+        env = _FakeEnv([CODE_AUDIT])
+        _algo(question_target="divergence").run(env, TASK)
+        self.assertEqual(len(env.prompts), 1)
+
+    def test_off_by_default(self):
+        self.assertEqual(LAASeR_PinpointSMT.DEFAULT_CONFIG["question_target"], "audit")
 
 
 if __name__ == "__main__":

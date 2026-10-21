@@ -245,6 +245,17 @@ Every entry: what changed, why, which script/run measured it, before → after.
 - **Hidden requirements per task vs. pass** (v7): 1 requirement 22/23, 2+: 10/24 — the ceiling
   of one clarification turn.
 
+### 2026-10-21 — v7 on the full validation split: TDS 0.7108
+
+- **What**: `laaser_pinpoint_smt_3.py` with its defaults, `--split val`, `openai/gpt-4.1-mini`
+  (run `20261021T141943Z_v7-val-r1`), vs. Pinpoint's three val runs.
+- **Result**: TDS 0.7108, 567/768 passed, nDCG 0.870, $0.0036/task; Pinpoint 0.6834 / 0.7021 /
+  0.7083 (545 / 561 / 566 passed), $0.0010/task. MBPP +16 over Pinpoint's mean, HumanEval -6.
+- **Reading it**: above 0.70 but one run, barely above Pinpoint's best; repeat before concluding.
+  26% of v7's failures are signatures (27 extra arguments, 25 argument order/type in 9 MBPP
+  tasks). On smoke-70, `decision_votes`, `resolve_defects` and `question_target=divergence`
+  did not raise the pass count (details: `docs/v7-failure-analysis.md`, update of 2026-10-21).
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for

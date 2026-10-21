@@ -89,3 +89,50 @@ one more candidate in the question choice instead of replacing or ignoring it.
 - `scripts/repeat_task.sh`, `diff_runs_by_task.py`, `show_task.py` mentioned in the handoff
   do not exist in the repo; `scripts/run_task.sh` uses the unperturbed prompt, not the smoke
   variant.
+
+## Update 2026-10-21: full validation, and what did not help
+
+### v7 on the full validation split (770 tasks, `gpt-4.1-mini`)
+
+| | v7 (`smt_3` defaults) | Pinpoint (3 runs) |
+|---|---|---|
+| TDS | **0.7108** | 0.6834, 0.7021, 0.7083 (mean 0.698) |
+| Passed /768 | **567** | 545, 561, 566 |
+| MBPP /418 | 289 | 263, 275, 282 |
+| HumanEval /350 | 278 | 282, 286, 284 |
+| nDCG | 0.870 | 0.836-0.865 |
+| Cost/task | $0.0036 | $0.0010 |
+
+Run `20261021T141943Z_v7-val-r1`. Above 0.70 and the best val run so far, but a single run that
+only just beats Pinpoint's best (567 vs. 566): a second val run is needed before calling v7
+better. v7 gains on MBPP (+16 over Pinpoint's mean) and loses on HumanEval (-6).
+
+Smoke-70 is a poor proxy for the 0.70 target: it force-includes 8 "known hard" tasks (mostly
+from the train split) that no variant passes, and one run varies by +-3 tasks.
+
+### Failures by kind (v7 on val, 201 failures)
+
+- Wrong value: 139.
+- Signature: 52 (26%). 27 pass more arguments than the task declares (the trailing `n`; out of
+  bounds by the rules, `tolerate_extra_args` stays off). 25 pass the arguments in another order
+  or type, concentrated in 9 MBPP task ids without a signature in the prompt: Mbpp/433 (all 7
+  variants: the text names "the number" before "the array", the test calls `(array, number)`),
+  Mbpp/128 (6: the test calls `long_words(n, "a sentence")`), Mbpp/390 (4), ... In 13 of the 25
+  the question was already about the arguments: the simulated user only reveals hidden
+  requirements, and the argument order is often not one of them.
+- Reading code from the console is misleading (handoff lesson 6.1): rich drops `[...]`, so
+  `return [w for w in words if len(w) > n]` prints as `return`. Read `results.jsonl`.
+
+### Variants measured on top of v7 (all kept behind flags, off by default)
+
+| Variant | Where | Result | Verdict |
+|---|---|---|---|
+| `--decision_votes 5` | smoke-70 | 47/70 (v7: 51, 45, 49) | no gain in passes; halves flipping tasks on the flaky set; 1.6x cost |
+| `--resolve_defects True` | smoke-70 | 39/70 | harmful: decisions taken from the perturbed text and examples propagate the perturbation (HumanEval/65 followed the edited example and stopped shifting) |
+| combo (votes + consensus + spec rewrite + resolver) | smoke-70 | 47/70 | `consensus` picks bundled questions (QUALITY=1 5 -> 8) |
+| `--question_target divergence`, free question | 23 tasks with 2+ hidden requirements | 11, 11 (v7: 13, 10, 10) | witnesses found in ~8/23 tasks, but the question drifted back to the audit's defect |
+| same, question assembled around the witness | same 23 tasks | 12, 10 | witness questions reached the user (6, 10 tasks; QUALITY=3 mostly) and HumanEval/40, /6, /65, /82 passed in both runs; MBPP witnesses were edge cases unrelated to the hidden requirement |
+
+The subset of tasks with 2+ hidden requirements comes from `scripts/make_multireq_set.py`,
+which reads `data/clarifications.jsonl` only to count requirements and choose which tasks to
+evaluate; no algorithm sees it.
