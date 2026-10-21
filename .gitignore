@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local IDE settings and scratch logs
+.idea/
+new_smt_exec2.txt
+newsmt.txt
+smtchecklist.txt
+smtchecklist2.txt
+smtv63times.txt
