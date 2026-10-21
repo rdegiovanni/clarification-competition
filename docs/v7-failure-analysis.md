@@ -165,3 +165,23 @@ cases ("given the list [-1,-5,2,-1,-5], what is the expected transformed list?",
 which the simulated user scores QUALITY=1 (ATOMICITY, LEAKAGE) and answers vaguely. v7's audit
 forces a quoted phrase, competing readings and one fact. Its judge also skipped the question on
 11 tasks it found correct. Next: the genetic algorithm with v7's question rules.
+
+#### Follow-up: the genetic algorithm with v7's question rules and an entry-point alias
+
+| Genetic | TDS | Passed | MBPP | HumanEval | nDCG | QUALITY=1 | NameError |
+|---|---|---|---|---|---|---|---|
+| original (`genetic-val-s70-r1`) | 0.5955 | 43 | 21 | 22 | 0.671 | 12 | 0 |
+| + v7 question rules (`genetic-v7q-s70-r1`) | 0.5395 | 39 | 19 | 20 | 0.786 | 7 | 2 |
+| + entry-point alias (`genetic-v7q-alias-s70-r1`) | 0.5675 | 41 | 19 | 22 | 0.743 | 7 | 0 |
+| v7, 3 runs | 0.62-0.70 | 51, 45, 49 | 26, 20, 24 | 25, 25, 25 | 0.857-0.929 | 5-6 | 0 |
+
+- v7's question rules (quoted phrase, competing readings, one fact, no test cases, no backticks)
+  in `QUESTION_PROMPT` halve the QUALITY=1 answers and raise nDCG, gaining HumanEval/142, /72
+  and Mbpp/388.
+- The algorithm never checked the returned function's name: when the evolved description stops
+  naming it, the model invents one (`def candidate(n)` for `sum_to_n`, `def items(val)` for
+  `digits`) and every test fails with NameError. `alias_entry_point` appends `entry = <name>`;
+  both tasks pass with it.
+- All three genetic runs (43, 39, 41) stay below v7's worst run (45): with good answers, the
+  remaining gap is the implementation after the answer (v7's coding prompt, sandbox check and
+  voted candidates).
