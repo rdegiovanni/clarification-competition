@@ -2,14 +2,17 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""Genetic Specification Improvement.
+"""Genetic Specification Improvement with Nagini formalisation.
 
-The task description is the genome. A noisy LLM judge estimates the number of
-issues in the current description. While it is judged faulty, one atomic
-question is asked. The answer is turned into a single established fact and the
-description is rewritten to state that fact, as if the original author had
-written it (the mutation operator). Fitness is issues + LAMBDA * questions.
-Code is generated only from the final description.
+1. The task description is the genome. A noisy LLM judge counts issues; while the
+   description looks faulty, one atomic question is asked and the answer is used to
+   rewrite the description (mutation).
+2. (Optional) Formalisation: from the best description, infer pre/postconditions in
+   the Nagini specification language (nagini_contracts). A question is asked only
+   when the contract cannot be inferred. The contract is checked against the examples
+   in the description and discarded if it contradicts them.
+3. Implementation: code is generated from the description plus the contract (if any).
+   The contract is guidance only; the returned code is plain standard-library Python.
 
 Team: Your Team Name
 Team Members: Member 1
@@ -101,29 +104,88 @@ Reply with one ```json block:
 {"changed": true, "fact": "the fact the answer establishes, one sentence, or null",
  "description": "the full rewritten description"}"""
 
+FORMALISE_SYSTEM = """You write Nagini contracts (the nagini_contracts specification language, used by the Nagini
+verifier for statically typed Python 3) for ONE Python function, from its task description.
+
+Nagini conventions:
+- First line: `from nagini_contracts.contracts import *` (plus `from typing import List, Dict, Set, Optional, ...`).
+- The function needs full type annotations. Use the signature from the description when it is given; otherwise
+  derive types ONLY from what the description states.
+- Preconditions: `Requires(<bool expr>)`. Postconditions: `Ensures(<bool expr>)`. Both are calls at the top of the
+  function body, before any other statement.
+- `Result()` is the return value. `Old(e)` is the value of e in the pre-state.
+- Quantifiers: `Forall(range(len(xs)), lambda i: Implies(cond, body))`, `Exists(...)`, `Forall(int, lambda i: ...)`.
+  Also `Implies(a, b)`.
+- Mutable containers need permissions: `Acc(list_pred(xs))`, `Acc(dict_pred(d))`, `Acc(set_pred(s))` in both Requires
+  and Ensures when the function reads them. Immutable values (int, bool, str, tuple) need none.
+- Pure functions: `@Pure` decorator; use it when the function has no side effects and returns a value. For
+  `@Pure` functions, do not use `Acc(...)` for the arguments you only read through `Requires`/`Ensures` when
+  contract on the immutable type is enough.
+- Exceptions: `Exsures(ValueError, <cond>)` only if the description says an exception is raised.
+- The body must be just `...` (no implementation).
+
+Rules:
+- Encode ONLY what the description states or what its examples demonstrate. Do not invent constraints, defaults or
+  tie-breaking rules. A weaker but true contract is better than a stronger guessed one.
+- Every example in the description must satisfy the preconditions and the postconditions.
+- Postconditions describe WHAT holds for the result, not HOW to compute it. No algorithms, no hidden-test guesses.
+- If the contract cannot be inferred because one specific fact is missing (for example the return form, the handling
+  of an invalid input, or which of two readings applies), do not guess: return status "need_clarification" with ONE
+  atomic, objective question. Ask only if no sound contract exists without that fact. If a weaker sound contract
+  exists, return it and list the open points under "assumptions".
+
+Reply with one ```json block:
+{"status": "ok" | "need_clarification",
+ "contract": "complete Python source of the annotated function stub with Requires/Ensures, or null",
+ "question": "one question, or null",
+ "assumptions": ["short list of points left open, may be empty"]}"""
+
+CONTRACT_CHECK_SYSTEM = """You check a Nagini contract against a task description.
+For every input/output example in the description, decide whether the preconditions hold on the input and the
+postconditions hold on the output. Also check the contract states nothing that the description contradicts.
+Reply with one ```json block:
+{"consistent": true | false, "reason": "max 40 words"}"""
+
 IMPL_PROMPT = """Implement the Python function `{entry}` for the task below.
 Use only the standard library. Return ONLY one ```python code block containing the
 complete implementation (imports and the function). Do not ask questions.
 
 {spec}"""
 
+IMPL_WITH_CONTRACT_PROMPT = """Implement the Python function `{entry}` for the task below.
+Use only the standard library. Return ONLY one ```python code block containing the
+complete implementation (imports and the function). Do not ask questions.
 
-def _parse_json(text: str) -> dict[str, Any]:
-    """Extract a JSON object from a ```json block or from bare text."""
-    block = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.S)
-    candidates = [block.group(1)] if block else []
+Task description:
+{spec}
+
+A formal contract in the Nagini specification language was inferred from the description:
+```python
+{contract}
+Make the implementation satisfy it: accept every input allowed by the Requires clauses and
+return a result for which every Ensures clause holds. Treat the contract as a precise
+restatement of the description; if the two ever differ, the description wins.
+Do NOT import nagini_contracts and do NOT include Requires/Ensures/Old/Result/Acc calls in
+your code: the answer must run with the plain Python standard library. Keep the function
+name and argument order from the description."""
+
+def _parse_json(text: Any) -> dict[str, Any]:
+    """Extract a JSON object from a ```json block or from bare text. Always returns a dict."""
+    # text = _as_text(text)
+    candidates: list[str] = []
+    for block in re.findall(r"```(?:json)?\s*\n(.*?)```", text, re.S):
+        candidates.append(block)
     m = re.search(r"\{.*\}", text, re.S)
     if m:
         candidates.append(m.group(0))
     for c in candidates:
         try:
             obj = json.loads(c)
-            if isinstance(obj, dict):
-                return obj
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError, ValueError):
             continue
+        if isinstance(obj, dict):
+            return obj
     return {}
-
 
 def _llm_json(env, system: str, user: str, tries: int = 1) -> dict[str, Any]:
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -133,48 +195,109 @@ def _llm_json(env, system: str, user: str, tries: int = 1) -> dict[str, Any]:
             return out
     return {}
 
-
-def _code(text: str) -> str | None:
-    blocks = re.findall(r"```(?:python)?\s*\n(.*?)```", text, re.S)
+def _code(text):
+    text = text or ""
+    blocks = re.findall(r"```(?:python|py)?\s*\n(.*?)```", text, re.S)
     return blocks[-1].strip() if blocks else None
 
+_CONTRACT_CALLS = {"Requires", "Ensures", "Exsures", "Invariant", "Decreases"}
+
+def _contract_ok(src: str, entry: str) -> bool:
+    """Cheap structural validation of a generated Nagini contract (no verifier call)."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return False
+    fn = next(
+    (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == entry),
+    None,
+    )
+    if fn is None:
+        return False
+    calls = [
+    s.value.func.id
+    for s in fn.body
+    if isinstance(s, ast.Expr)
+    and isinstance(s.value, ast.Call)
+    and isinstance(s.value.func, ast.Name)
+    ]
+    # At least one Requires/Ensures, all contract statements precede other statements.
+    if not any(c in {"Requires", "Ensures", "Exsures"} for c in calls):
+        return False
+    seen_other = False
+    for s in fn.body:
+        is_contract = (
+        isinstance(s, ast.Expr)
+        and isinstance(s.value, ast.Call)
+        and isinstance(s.value.func, ast.Name)
+        and s.value.func.id in _CONTRACT_CALLS
+        )
+        is_doc = (
+        isinstance(s, ast.Expr)
+        and isinstance(s.value, ast.Constant)
+        and isinstance(s.value.value, str)
+        )
+        if is_contract:
+            if seen_other:
+                return False
+            elif not is_doc:
+                seen_other = True
+    return True
 
 class GeneticSpecClarification(ClarificationAlgorithmBase):
-    MAX_QUESTIONS = 3
-    N_JUDGES = 3
-    LAMBDA = 0.3  # fitness penalty per question
-    ASK_THRESHOLD = 2  # min fitness issues before spending a question
-    MAX_GROWTH = 1.6  # reject rewrites that bloat the description
-
+    MAX_QUESTIONS = 15
+    N_JUDGES = 2
+    LAMBDA = 0.3
+    ASK_THRESHOLD = 1
+    MAX_GROWTH = 1.6
+    FORMALISE = True # optional step; override with config {"formalise": False}
+    MAX_FORMAL_QUESTIONS = 1 # clarification budget for the formalisation step
     def run(self, env: ClarificationEnvironment, problem: dict[str, Any]) -> str:
-        max_q = self.config.get("max_questions", self.MAX_QUESTIONS)
+        self.config_max_q = self.config.get("max_questions", self.MAX_QUESTIONS)
         self.env = env
         self.entry = problem["entry_point"]
         self.desc = problem["prompt"]
         self.facts: list[str] = []
-        history: list[tuple[str, str]] = []
+        self.history: list[tuple[str, str]] = []
+        self.contract: str | None = None
         wasted = 0
 
+        # ---- Phase 1: evolve the description -------------------------
         issues, findings = self._issues(self.desc)
-        while issues >= self.ASK_THRESHOLD and len(history) < max_q and env.can_ask():
-            q = self._question(findings, history)
+        while (
+            issues >= self.ASK_THRESHOLD
+            and len(self.history) < self.config_max_q
+            and env.can_ask()
+        ):
+            q = self._question(findings)
             if not q:
                 break
-            try:
-                a = env.ask_human(q)
-            except TooManyQuestionException:
+            a = self._ask(q)
+            if a is None:
                 break
-            history.append((q, a))
-
             if self._evolve(q, a):
                 issues, findings = self._issues(self.desc)
                 wasted = 0
             else:
                 wasted += 1
-                if wasted >= 2:  # the user keeps giving no usable fact
+                if wasted >= 2:
                     break
 
-        return self._implement(self.desc, self.entry)
+        # ---- Phase 2: optional formalisation -------------------------
+        if self.config.get("formalise", self.FORMALISE):
+            self.contract = self._formalise()
+
+        # ---- Phase 3: implementation ---------------------------------
+        return self._implement(self.desc, self.entry, self.contract)
+
+    # ---- environment helper -------------------------------------------
+    def _ask(self, q: str) -> str | None:
+        try:
+            a = self.env.ask_human(q)
+        except TooManyQuestionException:
+            return None
+        self.history.append((q, a))
+        return a
 
     # ---- fitness ------------------------------------------------------
     def _issues(self, spec: str) -> tuple[float, list[str]]:
@@ -189,10 +312,6 @@ class GeneticSpecClarification(ClarificationAlgorithmBase):
 
     # ---- mutation operator -------------------------------------------
     def _evolve(self, question: str, answer: str) -> bool:
-        """Rewrite self.desc with the fact the answer establishes.
-
-        Returns True if the description changed.
-        """
         user = (
             f"CURRENT DESCRIPTION:\n{self.desc}\n\nENTRY POINT: {self.entry}\n\n"
             f"QUESTION: {question}\nANSWER: {answer}\n"
@@ -204,7 +323,6 @@ class GeneticSpecClarification(ClarificationAlgorithmBase):
         new = new.strip()
         if new == self.desc.strip():
             return False
-        # Guards: keep the signature and bound the growth of the description.
         if f"def {self.entry}" in self.desc and f"def {self.entry}" not in new:
             return False
         if len(new) > self.MAX_GROWTH * len(self.desc) + 400:
@@ -216,8 +334,8 @@ class GeneticSpecClarification(ClarificationAlgorithmBase):
         return True
 
     # ---- question generation -----------------------------------------
-    def _question(self, findings, history) -> str | None:
-        hist = "\n".join(f"- {q}" for q, _ in history) or "(none)"
+    def _question(self, findings) -> str | None:
+        hist = "\n".join(f"- {q}" for q, _ in self.history) or "(none)"
         facts = "\n".join(f"- {f}" for f in self.facts) or "(none)"
         fnd = "\n".join(findings[:3]) or "(none)"
         r = _parse_json(
@@ -230,28 +348,62 @@ class GeneticSpecClarification(ClarificationAlgorithmBase):
         q = r.get("question")
         return q.strip() if isinstance(q, str) and q.strip() else None
 
+    # ---- formalisation (Nagini pre/postconditions) --------------------
+    def _formalise(self) -> str | None:
+        """Infer a Nagini contract; ask the user only if none can be inferred.
+
+        Returns the contract source, or None if formalisation failed or was
+        rejected (the pipeline then falls back to the description alone).
+        """
+        formal_questions = 0
+        while True:
+            hist = "\n".join(f"- Q: {q} A: {a}" for q, a in self.history) or "(none)"
+            user = (
+                f"TASK DESCRIPTION:\n{self.desc}\n\nENTRY POINT: {self.entry}\n\n"
+                f"CLARIFICATIONS ALREADY OBTAINED:\n{hist}\n"
+            )
+            out = _llm_json(self.env, FORMALISE_SYSTEM, user, tries=2)
+            status = out.get("status")
+
+            if status == "need_clarification":
+                q = out.get("question")
+                if (
+                    not isinstance(q, str)
+                    or not q.strip()
+                    or formal_questions >= self.MAX_FORMAL_QUESTIONS
+                    or len(self.history) >= self.config_max_q
+                    or not self.env.can_ask()
+                ):
+                    return None  # impossible to infer, cannot ask: skip formalisation
+                formal_questions += 1
+                a = self._ask(q.strip())
+                if a is None:
+                    return None
+                if not self._evolve(q.strip(), a):
+                    return None  # unusable answer: do not formalise on guesses
+                continue
+
+            contract = out.get("contract")
+            if status != "ok" or not isinstance(contract, str):
+                return None
+            contract = _code(contract) or contract.strip()
+            if not _contract_ok(contract, self.entry):
+                return None
+            return contract if self._contract_consistent(contract) else None
+
+    def _contract_consistent(self, contract: str) -> bool:
+        """Reject contracts that contradict the examples/description."""
+        user = f"TASK DESCRIPTION:\n{self.desc}\n\nCONTRACT:\n{contract}\n"
+        out = _llm_json(self.env, CONTRACT_CHECK_SYSTEM, user, tries=1)
+        return out.get("consistent") is True
+
     # ---- final code generation ---------------------------------------
-    def _implement(self, spec: str, entry: str) -> str:
-        msgs = [{"role": "user", "content": IMPL_PROMPT.format(entry=entry, spec=spec)}]
-        code = None
-        for _ in range(2):
-            resp = self.env.llm(msgs)
-            code = _code(resp)
-            if code:
-                try:
-                    tree = ast.parse(code)
-                    if any(
-                        isinstance(n, ast.FunctionDef) and n.name == entry
-                        for n in ast.walk(tree)
-                    ):
-                        break
-                except SyntaxError:
-                    pass
-            msgs += [
-                {"role": "assistant", "content": resp},
-                {
-                    "role": "user",
-                    "content": f"Invalid. Return valid Python defining `{entry}` in one ```python block.",
-                },
-            ]
-        return f"```python\n{code or ''}\n```"
+    def _implement(self, spec: str, entry: str, contract: str | None) -> str:
+        if contract:
+            prompt = IMPL_WITH_CONTRACT_PROMPT.format(entry=entry, spec=spec, contract=contract)
+        else:
+            prompt = IMPL_PROMPT.format(entry=entry, spec=spec)
+
+        resp = self.env.llm([{"role": "user", "content": prompt}])
+        code = _code(resp) or str(resp or "").strip()
+        return f"```python\n{code}\n```"
