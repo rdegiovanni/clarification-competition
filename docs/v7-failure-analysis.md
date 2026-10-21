@@ -136,3 +136,32 @@ from the train split) that no variant passes, and one run varies by +-3 tasks.
 The subset of tasks with 2+ hidden requirements comes from `scripts/make_multireq_set.py`,
 which reads `data/clarifications.jsonl` only to count requirements and choose which tasks to
 evaluate; no algorithm sees it.
+
+### GeneticSpecClarification vs. v7 on smoke-70 (2026-10-21)
+
+`clarify/algorithms/genetic_spec_improvement.py` (version of commit `9ebf797`, with Nagini
+formalisation) on the same smoke set as v7 (`--smoke-source val --smoke-size 70 --smoke-seed
+42`, `gpt-4.1-mini`), run `20261021T152053Z_genetic-val-s70-r1`. Earlier genetic runs used the
+default smoke source (unperturbed tasks) and are not comparable.
+
+| | genetic | v7 (3 runs) |
+|---|---|---|
+| TDS | **0.5955** | 0.7007, 0.6190, 0.6739 |
+| Passed /70 | **43** | 51, 45, 49 |
+| MBPP /39 | 21 | 26, 20, 24 |
+| HumanEval /31 | 22 | 25, 25, 25 |
+| nDCG | **0.671** | 0.857-0.929 |
+| QUALITY=1 answers | **12** | 5-6 |
+| Clarification rate | 84% | 96% |
+| Cost/task | $0.0022 | $0.0035 |
+
+By hidden requirements, the loss is mostly on tasks with 1 requirement (18 vs. 19-22), the ones
+v7 nearly solves. No task v7 always fails is gained; 5 tasks v7 always passes are lost
+(HumanEval/142, /65, /72, Mbpp/215, /388).
+
+Cause: the question. The genetic algorithm's questions are broad or bundled ("What is the exact
+format of the input, and what should the decoded output look like?", Mbpp/215) or ask for test
+cases ("given the list [-1,-5,2,-1,-5], what is the expected transformed list?", HumanEval/142),
+which the simulated user scores QUALITY=1 (ATOMICITY, LEAKAGE) and answers vaguely. v7's audit
+forces a quoted phrase, competing readings and one fact. Its judge also skipped the question on
+11 tasks it found correct. Next: the genetic algorithm with v7's question rules.

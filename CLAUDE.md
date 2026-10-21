@@ -256,6 +256,13 @@ Every entry: what changed, why, which script/run measured it, before → after.
   tasks). On smoke-70, `decision_votes`, `resolve_defects` and `question_target=divergence`
   did not raise the pass count (details: `docs/v7-failure-analysis.md`, update of 2026-10-21).
 
+### 2026-10-21 — GeneticSpecClarification on smoke-70: TDS 0.5955
+
+- **What**: `genetic_spec_improvement.py` (commit `9ebf797`) on smoke-70 (val, seed 42).
+- **Result**: TDS 0.5955, 43/70, nDCG 0.671, $0.0022/task vs. v7 0.62-0.70 (45-51 passed).
+- **Reading it**: its questions are bundled or ask for test cases (QUALITY=1 answers 12 vs. 5-6);
+  it loses mostly on 1-requirement tasks. Table in `docs/v7-failure-analysis.md`.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for
