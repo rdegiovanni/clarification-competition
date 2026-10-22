@@ -8,8 +8,13 @@ try:
     from evalplus.data.mbpp import get_mbpp_plus, get_mbpp_plus_hash
     from evalplus.eval._special_oracle import MBPP_OUTPUT_NOT_NONE_TASKS, MBPP_OUTPUT_SET_EQ_TASKS
     from evalplus.evaluate import get_groundtruth
+
+    import sys
+    sys.set_int_max_str_digits(0)
 except ImportError:
     evalplus = None
+
+
 
 
 def _check_consistency(dataset, missing_entries):
@@ -298,7 +303,7 @@ def copy_code(code: str, container_id: str) -> str:
     try:
         filename = f"temp_script_{container_id}.py"
         container_path = "/app/temp_script.py"
-        with open(filename, "w") as f:
+        with open(filename, "w", encoding="utf-8") as f:
             f.write(code)
             f.flush()
             result = subprocess.run(
