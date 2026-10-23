@@ -22,6 +22,7 @@ from clarify.algorithms.laaser_pinpoint_smt_3 import (
     example_verdicts,
     majority_decision,
     parse_points,
+    resolve_by_convention,
     resolve_defects,
     rewrite_spec,
     vote_points,
@@ -362,6 +363,75 @@ class DivergenceTest(unittest.TestCase):
 
     def test_off_by_default(self):
         self.assertEqual(LAASeR_PinpointSMT.DEFAULT_CONFIG["question_target"], "audit")
+
+
+CONVENTION_REPLY = (
+    "POINT 1: ANSWER | count elements equal to k too\n"
+    "POINT 2: DROP | the extra sum returned alongside the result\n"
+)
+
+
+class ConventionResolveTest(unittest.TestCase):
+    def test_answer_and_drop_points_are_kept_open_ones_are_not(self):
+        reply = CONVENTION_REPLY + "POINT 3: OPEN | whatever\n"
+        audit = TWO_DEFECTS.replace(
+            "STEP 2", '- MISSING | "not stated" | reading A: x | reading B: y | IMPACT: LOW\nSTEP 2'
+        )
+        block = resolve_by_convention(_FakeEnv([reply] * 3), TASK, audit, STRICT, "Counted.", 3)
+        self.assertIn("- count elements equal to k too", block)
+        self.assertIn("- Ignore: the extra sum returned alongside the result", block)
+        self.assertNotIn("whatever", block)
+
+    def test_only_strict_majorities(self):
+        other = "POINT 1: OPEN | -\nPOINT 2: OPEN | -\n"
+        env = _FakeEnv([CONVENTION_REPLY, other])
+        self.assertEqual(resolve_by_convention(env, TASK, TWO_DEFECTS, STRICT, "Counted.", 2), "")
+
+    def test_the_examples_are_never_formalized(self):
+        audit = TWO_DEFECTS + f"QUESTION: {STRICT}\n"
+        env = _FakeEnv([audit, CONVENTION_REPLY, CODE_REPLY])  # STUB has an example
+        _algo(resolve_defects=True, resolve_mode="convention", resolve_votes=1).run(env, STUB)
+        self.assertEqual(len(env.prompts), 3)  # audit, convention, code: no READINGS call
+        self.assertIn("Ignore: the extra sum", env.prompts[2])
+        self.assertIn("never use the examples", env.prompts[1])
+
+    def test_full_mode_is_the_default(self):
+        self.assertEqual(LAASeR_PinpointSMT.DEFAULT_CONFIG["resolve_mode"], "full")
+
+
+CODING_WITH_DEFECTS = (
+    "STEP 1 - DEFECTS\n"
+    '- VAGUE | "greater than" | reading A: strictly | reading B: or equal | IMPACT: LOW\n'
+    "STEP 2 - DECISION\nDECISION: CODE\n"
+    "```python\ndef count_greater(arr, k):\n    return sum(1 for x in arr if x > k)\n```\n"
+)
+
+
+class SubmissionFlagsTest(unittest.TestCase):
+    def test_without_the_solver_no_formalization_call_is_made(self):
+        env = _FakeEnv([CODING_WITH_DEFECTS])
+        _algo(use_solver=False).run(env, TASK)
+        self.assertEqual(len(env.prompts), 1)  # only the audit
+        self.assertEqual(env.questions, [])
+
+    @unittest.skipUnless(HAS_Z3, "z3-solver not installed")
+    def test_with_the_solver_the_readings_are_formalized(self):
+        env = _FakeEnv([CODING_WITH_DEFECTS, "no formalization"])
+        _algo().run(env, TASK)
+        self.assertIn("SMT-LIB", env.prompts[1])
+
+    def test_priority_reaches_the_judge_only_when_on(self):
+        judge = "1: PASS\n2: PASS\nBEST: 2"
+        for priority in (False, True):
+            env = _FakeEnv([ask(EMPTY), ask(STRICT), judge, CODE_REPLY])
+            _algo(question_samples=2, question_priority=priority).run(env, TASK)
+            self.assertEqual(env.questions, [STRICT])
+            self.assertEqual("order of value" in env.prompts[2], priority)
+
+    def test_defaults(self):
+        defaults = LAASeR_PinpointSMT.DEFAULT_CONFIG
+        self.assertTrue(defaults["use_solver"])
+        self.assertFalse(defaults["question_priority"])
 
 
 if __name__ == "__main__":

@@ -189,3 +189,54 @@ This variant lives in `clarify/algorithms/genetic_spec_improvement_v7q.py` (clas
 - All three genetic runs (43, 39, 41) stay below v7's worst run (45): with good answers, the
   remaining gap is the implementation after the answer (v7's coding prompt, sandbox check and
   voted candidates).
+
+## Update 2026-10-23: failure origins, and three more variants that did not help
+
+Public leaderboard (site, not the repo CSV): ZarutskiyClarifier leads with TDS 0.6697 (Pass@1
+0.697, nDCG 0.926), then EDYClarifier 0.6610. v7 on val: 0.7108. Submission deadline Nov 6,
+single track.
+
+### Where v7 fails (val, 770 tasks; `scripts/classify_failures.py`)
+
+MBPP 291/420 (69.3%), HumanEval 278/350 (79.4%).
+
+| Origin | Fails | MBPP | HE | Asked | QUALITY=3 |
+|---|---|---|---|---|---|
+| wrong value | 122 (61%) | 65 | 57 | 121 | 106 |
+| signature: argument order/type | 26 (13%) | 26 | 0 | 26 | 18 |
+| wrong type | 17 (8.5%) | 5 | 12 | 17 | 14 |
+| signature: extra arguments | 17 (8.5%) | 17 | 0 | 17 | 12 |
+| signature: missing arguments | 10 (5%) | 9 | 1 | 10 | 7 |
+| crash | 8 (4%) | 6 | 2 | 8 | 6 |
+| no usable code | 1 | 1 | 0 | 1 | 1 |
+
+Pass rate by hidden requirements: 0 → 94%, 1 → 83%, 2 → 61%, 3+ → 36%; 68% of the failures
+are tasks with 2+ requirements. Even with 1 requirement elicited at QUALITY=3, 31 tasks fail:
+the answer echoes the edited text (HumanEval/120: "the smallest values, as shown by example
+1"; the test wants the largest) or the code obeys an oddity of the text (HumanEval/40, /72
+return the string "False"). Wrong-type failures are the code obeying an added output demand
+(HumanEval/57 `(True, 17)`, HumanEval/73 `'four'`). Returning the type of the signature's
+return annotation would fix ~1 task: only 2 failures contradict an annotation, and in one the
+annotation itself is edited.
+
+Smoke-70 run `v7-s70-r4`: 48/70 (MBPP 59.0%, HumanEval 80.6%); 17 of its 22 failures also
+failed in all three earlier v7 runs (7 are the forced hard tasks, 4 extra arguments).
+
+### Variants (all behind flags, off by default)
+
+| Variant | Where | Result | v7 on the same set |
+|---|---|---|---|
+| `--resolve_defects True --resolve_mode convention` (answer implications applied to every case, unconfirmed odd additions dropped, never the examples) | 23 tasks with 2+ requirements, 2 runs | 8, 11 | 13, 10, 10 |
+| `--question_priority True --question_samples 5` (the judge ranks contradictions, return format, arguments, missing rules over edge inputs) | smoke-70 | 47/70, nDCG 0.800, QUALITY=1 8 | 45-51, nDCG 0.86-0.93, QUALITY=1 ~5 |
+| `--use_solver False` (as if z3 were not installed) | smoke-70 | 45/70 | 45-51 |
+
+Without z3: the two tasks lost against every v7 run (HumanEval/82, Mbpp/388) used the audit's
+question in all five runs, never a z3 one; Mbpp/388 got "the exponent" instead of "the value"
+this time. The z3 layers fired in 2-3 of 70 tasks per v7 run. v7 does not depend on z3: with
+the optional import it behaves as `use_solver=False` where z3 is missing, so it can be
+submitted without the library request (and z3 must stay out of `pyproject.toml`).
+
+Three variants that decide or steer the unasked points explicitly (full resolver,
+convention resolver, combo) all lost to the coder's silent guess; smoke-70 no longer separates
+variants from v7 (every one this week stayed inside v7's 45-51). Next: a second v7 run on the
+full validation split.

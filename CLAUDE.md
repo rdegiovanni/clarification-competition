@@ -266,6 +266,17 @@ Every entry: what changed, why, which script/run measured it, before → after.
   question rules and an entry-point alias (the code sometimes
   named the function `candidate`): 39 then 41/70, nDCG 0.786 / 0.743; still below v7's worst run.
 
+### 2026-10-23 — failure origins; convention resolver, question priority, no-z3
+
+- **Failure origins** (v7, val, `scripts/classify_failures.py`): wrong value 61%, argument
+  order/type 13%, wrong type 8.5%, extra arguments 8.5%, missing arguments 5%; 68% of failures
+  are tasks with 2+ hidden requirements. MBPP 69.3%, HumanEval 79.4%.
+- **Measured, no gain** (flags off by default): `resolve_mode=convention` 8, 11/23 on the
+  multi-requirement subset (v7 13, 10, 10); `question_priority` 47/70 with nDCG 0.800;
+  `use_solver=False` 45/70 (v7 45-51; the losses did not involve z3). v7 does not need z3.
+- Public leader (site): ZarutskiyClarifier TDS 0.6697. Deadline Nov 6. Details:
+  `docs/v7-failure-analysis.md`, update of 2026-10-23.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for

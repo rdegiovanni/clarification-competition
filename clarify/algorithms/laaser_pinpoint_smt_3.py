@@ -451,19 +451,41 @@ choose, among the questions that pass, the one whose answer would make the most 
 pass (contradictions and the return format first). End with exactly one line: BEST: <number>
 """.strip()
 BEST_PATTERN = re.compile(r"BEST\W*(\d+)", re.I)
+# With question_priority, the judge also ranks what is worth the one question. On val, failing
+# tasks with a good answer had often spent it on what a careful programmer would decide anyway
+# (HumanEval/98: accented vowels) while the point that broke the tests went unasked
+# (HumanEval/6: a list example under a `-> str` annotation).
+QUESTION_PRIORITY = """
+Among the questions that pass, prefer by this order of value:
+1. a contradiction between two statements, or between a statement and an example, the
+   signature or a type hint;
+2. the type or format of the return value;
+3. the arguments (which, in what order, of what type) when the task shows no signature;
+4. a missing rule or a vague term that changes results on ordinary inputs.
+A question about a rare or edge input (accents, empty input, negative numbers), about a
+requirement tests cannot observe, or about something a careful programmer would decide the
+same way anyway is worth less than any of these.
+"""
 
 
 def _normalized(question: str) -> str:
     return " ".join(re.findall(r"\w+", question.lower()))
 
 
-def judge_questions(env: ClarificationEnvironment, prompt: str, questions: list[str]) -> int:
+def judge_questions(
+    env: ClarificationEnvironment, prompt: str, questions: list[str], priority: bool = False
+) -> int:
     """Index of the question the judge prefers (0, the first, when it gives no clear verdict)."""
     if len(questions) < 2:
         return 0
+    template = QUESTION_JUDGE_TEMPLATE
+    if priority:
+        template = template.replace(
+            "End with exactly one line:", QUESTION_PRIORITY.strip() + "\nEnd with exactly one line:"
+        )
     response = env.llm(
         _fill(
-            QUESTION_JUDGE_TEMPLATE,
+            template,
             prompt=prompt,
             questions="\n".join(f"{n}. {q}" for n, q in enumerate(questions, 1)),
         )
@@ -1251,9 +1273,10 @@ def smt_certificate(
 
 
 def find_certificate(
-    env: ClarificationEnvironment, problem: dict[str, Any]
+    env: ClarificationEnvironment, problem: dict[str, Any], solver: bool = True
 ) -> dict[str, Any] | None:
-    """The whole contradiction check. Never raises: any failure means "no certificate"."""
+    """The whole contradiction check. Never raises: any failure means "no certificate".
+    solver=False behaves as if z3 were not installed (only the type clash, which needs none)."""
     prompt, entry_point = problem["prompt"], problem["entry_point"]
     try:
         examples = extract_examples(prompt, entry_point)
@@ -1263,7 +1286,7 @@ def find_certificate(
         if signature is None:
             return None
         clash = type_clash(signature, entry_point)
-        if clash is not None or z3 is None:
+        if clash is not None or z3 is None or not solver:
             return clash
         params = ", ".join(
             f"{name} : {sort}"
@@ -1747,12 +1770,16 @@ def formalize_readings(
 
 
 def find_interpretation_conflict(
-    env: ClarificationEnvironment, problem: dict[str, Any], audit: str, audit_question: str | None
+    env: ClarificationEnvironment,
+    problem: dict[str, Any],
+    audit: str,
+    audit_question: str | None,
+    solver: bool = True,
 ) -> dict[str, Any] | None:
     """The whole interpretation step. Never raises: any failure means "keep the audit's"."""
     try:
         defects = audit_defects(audit)
-        if z3 is None or not defects:
+        if z3 is None or not solver or not defects:
             return None
         helpers, ambiguities, parameter_sorts = formalize_readings(env, problem, defects)
         results = analyse_readings(helpers, ambiguities, parameter_sorts)
@@ -1916,6 +1943,83 @@ def vote_points(samples: list[dict[int, tuple[str, str, str]]], count: int) -> l
         clause = next(s[index][2] for s in samples if index in s and s[index][0] == best)
         decisions.append(f"- {'Ignore: ' if best == 'DROP' else ''}{clause}")
     return decisions
+
+
+CONVENTION_TEMPLATE = """
+Task:
+<<<
+{prompt}
+>>>
+You asked the user one clarifying question; their answer is authoritative.
+Question: {question}
+Answer: {answer}
+
+An audit found these unclear points in the task:
+{defects}
+
+The task text may have been edited: odd requirements may have been added to an otherwise
+standard function, and its examples may be the edited part, so never use the examples as
+evidence. Classify every point:
+- ANSWER: the answer settles it, directly or by implication. An answer about one case applies
+  to every case (if it says "return just False, not a tuple", no case returns a tuple).
+- DROP: an unusual addition to the function's standard behaviour that the answer does not
+  confirm -- an extra value to return alongside the result, a return type or format that does
+  not fit the function's purpose, a constraint tests cannot observe (complexity, "no loops").
+  Implement the function's standard behaviour without it.
+- OPEN: anything else; leave it to the programmer.
+For each point write exactly one line:
+POINT <number>: <ANSWER, DROP or OPEN> | <the behaviour to implement, one short clause>
+""".strip()
+CONVENTION_POINT = re.compile(
+    r"POINT\s*(\d+)\s*:\s*\**\s*(ANSWER|DROP|OPEN)\b[^|\n]*\|\s*(.+)", re.I
+)
+
+
+def resolve_by_convention(
+    env: ClarificationEnvironment,
+    problem: dict[str, Any],
+    audit: str,
+    question: str,
+    answer: str,
+    votes: int,
+) -> str:
+    """RESOLVED_BLOCK with the points a strict majority of `votes` samples settles from the
+    answer or drops as an unconfirmed oddity; OPEN points are left to the coder. Unlike
+    resolve_defects it never uses the task's examples or the solver (on smoke-70 decisions
+    taken from the edited text spread the edit: 39/70). Never raises."""
+    try:
+        defects = audit_defects(audit)
+        if not defects:
+            return ""
+        prompt = _fill(
+            CONVENTION_TEMPLATE,
+            prompt=problem["prompt"],
+            question=question,
+            answer=answer,
+            defects="\n".join(f"{n}. {d}" for n, d in enumerate(defects, 1)),
+        )
+        samples = []
+        for _ in range(max(int(votes), 1)):
+            try:
+                reply = env.llm(prompt)
+            except Exception:
+                break  # e.g. the budget is spent
+            points: dict[int, tuple[str, str, str]] = {}
+            for number, choice, clause in CONVENTION_POINT.findall(reply or ""):
+                index = int(number) - 1
+                if 0 <= index < len(defects) and index not in points:
+                    points[index] = (choice.upper(), "CONVENTION", clause.strip())
+            samples.append(points)
+        kept = []
+        for index in range(len(defects)):
+            choices = [s[index][0] for s in samples if index in s]
+            best = max(sorted(set(choices)), key=choices.count) if choices else "OPEN"
+            if best != "OPEN" and choices.count(best) * 2 > len(samples):
+                clause = next(s[index][2] for s in samples if index in s and s[index][0] == best)
+                kept.append(f"- {'Ignore: ' if best == 'DROP' else ''}{clause}")
+        return _fill(RESOLVED_BLOCK, decisions="\n".join(kept)) if kept else ""
+    except Exception:
+        return ""
 
 
 def resolve_defects(
@@ -2848,6 +2952,9 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # applying README's criteria) or "consensus" (the question most audits agree on, no
         # extra call, the same choice for the same samples).
         "question_choice": "judge",
+        # Give the judge an order of value for the one question (QUESTION_PRIORITY):
+        # contradictions, return format, arguments, then missing rules; edge inputs last.
+        "question_priority": False,
         # After a real answer, rewrite the task into one specification with the answer folded
         # in (SPEC_TEMPLATE) and code, check and repair from it; the question and answer stay
         # attached. Falls back to the task when the rewrite drops the entry point or signature.
@@ -2861,8 +2968,15 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # "divergence" (the probe call on which divergence_samples implementations written
         # without clarification return different values; the audit's question when they agree).
         "question_target": "audit",
+        # Use the z3 layers when z3 is installed. False behaves exactly as without z3 (the
+        # library is not approved yet; the evaluation may run without it).
+        "use_solver": True,
         "divergence_samples": 4,
         "resolve_votes": 3,
+        # "full": answer, then examples checked by z3, then convention (resolve_defects; 39/70
+        # on smoke-70). "convention": only what the answer implies, and unconfirmed odd
+        # additions dropped; never the examples (resolve_by_convention).
+        "resolve_mode": "full",
         # Show the audit, as an optional reference, typical shape questions for the data
         # structures the task mentions (tuples: pair or N-tuple, flat or nested result; trees:
         # binary or N-ary; ...) and ask for shape/format questions with literal readings.
@@ -2945,7 +3059,9 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             if all(_normalized(question) != _normalized(q) for q in distinct):
                 distinct.append(question)
         try:
-            return distinct[judge_questions(env, prompt, distinct)]
+            return distinct[
+                judge_questions(env, prompt, distinct, bool(self.config["question_priority"]))
+            ]
         except Exception:
             return distinct[0]
 
@@ -3017,7 +3133,7 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         solver_first = self.config["question_source"] == "solver"
 
         if coding or solver_first:  # in "audit" mode an asked question is left untouched
-            certificate = find_certificate(env, problem)
+            certificate = find_certificate(env, problem, solver=self.config["use_solver"])
             if certificate is not None:
                 if coding:
                     # The audit would code straight through a proven contradiction.
@@ -3026,7 +3142,7 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
                     question = certificate["question"]
             else:
                 conflict = find_interpretation_conflict(
-                    env, problem, audit, None if coding else question
+                    env, problem, audit, None if coding else question, self.config["use_solver"]
                 )
                 if conflict is not None:
                     decision, question = "ASK", conflict["question"]
@@ -3059,7 +3175,12 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             clarification = _clarification_block(question, answer)
         coding_problem = problem
         if answered and self.config["resolve_defects"]:
-            decisions = resolve_defects(
+            resolver = (
+                resolve_by_convention
+                if self.config["resolve_mode"] == "convention"
+                else resolve_defects
+            )
+            decisions = resolver(
                 env, problem, audit, question, answer, int(self.config["resolve_votes"])
             )
             clarification += decisions
