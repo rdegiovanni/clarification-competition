@@ -277,6 +277,15 @@ Every entry: what changed, why, which script/run measured it, before → after.
 - Public leader (site): ZarutskiyClarifier TDS 0.6697. Deadline Nov 6. Details:
   `docs/v7-failure-analysis.md`, update of 2026-10-23.
 
+### 2026-10-23 — second v7 val run: TDS 0.6906; v7 and Pinpoint tied overall
+
+- **Result**: v7 val runs 0.7108 and 0.6906 (mean 0.7007, sd 0.014) vs. Pinpoint 0.6834 /
+  0.7021 / 0.7083 (mean 0.6979); 101/768 tasks flip between the two v7 runs. All above the
+  leader's 0.6697.
+- **Reading it**: tied overall at 3.5x the cost, but consistently split by benchmark: v7 +14 on
+  MBPP, -11.5 on HumanEval. Next: Pinpoint's behaviour when the prompt shows a `def` signature,
+  v7 otherwise (`docs/v7-failure-analysis.md`).
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for

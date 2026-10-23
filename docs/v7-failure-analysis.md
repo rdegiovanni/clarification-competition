@@ -240,3 +240,28 @@ Three variants that decide or steer the unasked points explicitly (full resolver
 convention resolver, combo) all lost to the coder's silent guess; smoke-70 no longer separates
 variants from v7 (every one this week stayed inside v7's 45-51). Next: a second v7 run on the
 full validation split.
+
+## Update 2026-10-23 (evening): second v7 run on the full validation split
+
+| | val runs | TDS | mean | MBPP /418 | HumanEval /350 | cost/task |
+|---|---|---|---|---|---|---|
+| v7 (`laaser_pinpoint_smt_3.py`) | 2 | 0.7108, 0.6906 | **0.7007** (sd 0.014) | **289, 285** | 278, 267 | $0.0036 |
+| Pinpoint (`laaser_pinpoint.py`) | 3 | 0.6834, 0.7021, 0.7083 | **0.6979** (sd 0.013) | 263, 275, 282 | **282, 286, 284** | $0.0010 |
+| leader (ZarutskiyClarifier) | - | 0.6697 | | | | |
+
+Run `20261023T153422Z_v7-val-r2`: TDS 0.6906, Pass@1 71.8%, nDCG 0.871; MBPP 68.1%, HumanEval
+76.3%. The first run's 0.7108 was the high side of the noise: 101 of 768 tasks change outcome
+between the two v7 runs.
+
+- Overall, v7 and Pinpoint are tied (0.7007 vs. 0.6979, far inside one standard deviation), and
+  v7 costs 3.5x more. Every one of the five val runs is above the leader's 0.6697.
+- The split by benchmark is consistent across runs: v7 is better on MBPP (+14 tasks over
+  Pinpoint's mean) and worse on HumanEval (-11.5). The layers v7 adds (data-structure checklist,
+  sandbox check, voted candidates) help when the task is prose without a signature and hurt when
+  it already gives the stub and docstring. Failure origins of the second run repeat the first:
+  wrong value 64%, argument order/type 11%, extra arguments 7%, wrong type 7% (15 of 16 on
+  HumanEval), missing arguments 6%.
+- Next: choose the path by the shape of the task -- Pinpoint's behaviour when the prompt shows
+  the `def` signature, full v7 when it is prose. If the effects add up, about 287 + 284 = 571/768
+  (TDS ~0.715). It only depends on whether the task text shows a signature, never on task ids
+  or hidden data. To be measured on val HumanEval first (MBPP is unchanged by it).
