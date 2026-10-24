@@ -2945,6 +2945,78 @@ ARGUMENT_RULE = """5. When the task does not fix the order of the arguments, put
    processed (list, tuple, string, dict, ...) first and scalar parameters (counts, thresholds,
    values) after it, unless the user's answer says otherwise."""
 
+# With reorder_arguments, the returned entry point's two parameters are swapped when the task
+# shows no signature and the body uses the first only as a scalar and the second as a
+# collection: a prompt rule was ignored (the model follows the order the text names things),
+# while a swap in the `def` line is exact (the body refers to parameters by name). Offline on
+# the code of a full val run: the 9 touched variants 1/9 -> 5/9 passed (Mbpp/433 0/6 -> 5/6).
+# The order is kept when the user's answer talks about it (Mbpp/128: "an integer threshold as
+# the first argument"). Ad hoc and measured on three task ids: see docs/v7-failure-analysis.md.
+COLLECTION_CALLS = frozenset(
+    "len sorted set list sum max min enumerate zip reversed tuple dict any all map filter".split()
+)
+ORDER_IN_ANSWER = re.compile(
+    r"\b(first|second|last)\s+(argument|parameter|input)|\b(argument|parameter|input)s?\s+order"
+    r"|\border\s+of\s+(the\s+)?(argument|parameter|input)s?",
+    re.I,
+)
+
+
+def parameter_roles(function: ast.FunctionDef) -> str:
+    """One letter per parameter: C (used as a collection: iterated, indexed, len(), a method
+    on it, ...), S (used only as a scalar: arithmetic, comparisons, range()) or ? (unclear)."""
+    names = [a.arg for a in function.args.args]
+    collection: set[str] = set()
+    scalar: set[str] = set()
+    for node in ast.walk(function):
+        if isinstance(node, (ast.For, ast.comprehension)) and isinstance(node.iter, ast.Name):
+            collection.add(node.iter.id)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            first = node.args[0] if node.args else None
+            if node.func.id in COLLECTION_CALLS and isinstance(first, ast.Name):
+                collection.add(first.id)
+            if node.func.id == "range":
+                scalar.update(a.id for a in node.args if isinstance(a, ast.Name))
+        elif isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+            collection.add(node.value.id)
+        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            collection.add(node.value.id)
+        elif isinstance(node, ast.BinOp):
+            scalar.update(x.id for x in (node.left, node.right) if isinstance(x, ast.Name))
+        elif isinstance(node, ast.Compare):
+            scalar.update(x.id for x in [node.left, *node.comparators] if isinstance(x, ast.Name))
+    return "".join("C" if n in collection else ("S" if n in scalar else "?") for n in names)
+
+
+def collection_first(code: str, entry_point: str) -> str:
+    """The code with the entry point's (scalar, collection) parameters swapped in its `def`
+    line; the code unchanged when the roles are not exactly that or anything is unusual."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code
+    found = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == entry_point]
+    if len(found) != 1:
+        return code
+    function = found[0]
+    args = function.args
+    if len(args.args) != 2 or args.defaults or args.vararg or args.kwonlyargs or args.kwarg:
+        return code
+    if args.posonlyargs or parameter_roles(function) != "SC":
+        return code
+    first, second = (ast.unparse(a) for a in args.args)
+    lines = code.splitlines(keepends=True)
+    pattern = re.compile(
+        rf"(def\s+{re.escape(entry_point)}\s*\(\s*)({re.escape(first)})(\s*,\s*)"
+        rf"({re.escape(second)})(\s*\))"
+    )
+    line, count = pattern.subn(r"\1\4\3\2\5", lines[function.lineno - 1], count=1)
+    if count != 1:
+        return code
+    lines[function.lineno - 1] = line
+    return "".join(lines)
+
+
 PINPOINT_PROFILE = {"checklist": False, "verify": False, "question_samples": 1, "candidates": 1}
 
 
@@ -3000,6 +3072,10 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # Add ARGUMENT_RULE (collection first, scalars after) to the coding rules of tasks that
         # do not show their `def` signature.
         "argument_convention": False,
+        # Swap the entry point's (scalar, collection) parameters to (collection, scalar) in the
+        # returned code of tasks without a signature, unless the user's answer talks about the
+        # order (collection_first). Ad hoc, see the threats to validity in the docs.
+        "reorder_arguments": False,
         "divergence_samples": 4,
         "resolve_votes": 3,
         # "full": answer, then examples checked by z3, then convention (resolve_defects; 39/70
@@ -3061,6 +3137,13 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
                 rules,
                 int(self.config["candidates"]),
             )
+        if (
+            self.config["reorder_arguments"]
+            and candidate
+            and not shows_signature(problem)
+            and not ORDER_IN_ANSWER.search(clarification or "")
+        ):
+            candidate = collection_first(candidate, entry_point)
         if self.config["tolerate_extra_args"] and candidate:
             candidate = tolerate_extra_args(candidate, entry_point)
         return candidate

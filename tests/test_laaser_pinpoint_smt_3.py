@@ -17,6 +17,7 @@ import unittest
 from clarify.algorithms import laaser_pinpoint_smt_3
 from clarify.algorithms.laaser_pinpoint_smt_3 import (
     LAASeR_PinpointSMT,
+    collection_first,
     consensus_question,
     divergent_call,
     example_verdicts,
@@ -472,6 +473,54 @@ class ArgumentConventionTest(unittest.TestCase):
         env = _FakeEnv([ask(STRICT), CODE_REPLY])
         _algo().run(env, TASK)
         self.assertNotIn("collection being", env.prompts[0] + env.prompts[1])
+
+
+GREATER = {
+    "prompt": "Write a function to check whether the entered number is greater than the array.",
+    "entry_point": "check_greater",
+}
+SCALAR_FIRST = "def check_greater(number, arr):\n    return all(number > x for x in arr)\n"
+GREATER_Q = "Should the number be strictly greater than every element?"
+
+
+class ReorderArgumentsTest(unittest.TestCase):
+    def test_scalar_then_collection_is_swapped_in_the_def_line_only(self):
+        self.assertEqual(
+            collection_first(SCALAR_FIRST, "check_greater"),
+            "def check_greater(arr, number):\n    return all(number > x for x in arr)\n",
+        )
+
+    def test_anything_else_is_left_alone(self):
+        for code in (
+            "def f(arr, k):\n    return [x for x in arr if x > k]\n",  # already first
+            "def f(a, b):\n    return a + b\n",  # two scalars
+            "def f(k, arr=()):\n    return len(arr) > k\n",  # a default
+            "def f(k, arr, z):\n    return len(arr) > k + z\n",  # three parameters
+            "def f(k, arr):\n    return len(arr) > k\n\ndef f(x):\n    return x\n",  # two defs
+            "def f(k, arr:",  # not Python
+        ):
+            self.assertEqual(collection_first(code, "f"), code)
+
+    def run_greater(self, problem, answer, **config):
+        env = _FakeEnv([ask(GREATER_Q), f"```python\n{SCALAR_FIRST}```"], answer=answer)
+        return _algo(**config).run(env, problem)
+
+    def test_the_returned_code_is_reordered(self):
+        result = self.run_greater(GREATER, "Yes, strictly.", reorder_arguments=True)
+        self.assertIn("def check_greater(arr, number)", result)
+
+    def test_an_answer_about_the_order_wins(self):
+        answer = "Yes; the number is the first argument."
+        result = self.run_greater(GREATER, answer, reorder_arguments=True)
+        self.assertIn("def check_greater(number, arr)", result)
+
+    def test_off_by_default(self):
+        self.assertIn("(number, arr)", self.run_greater(GREATER, "Yes, strictly."))
+
+    def test_tasks_that_show_the_signature_are_untouched(self):
+        stub = {**GREATER, "prompt": 'def check_greater(number, arr):\n    """Greater?"""\n'}
+        result = self.run_greater(stub, "Yes.", reorder_arguments=True)
+        self.assertIn("(number, arr)", result)
 
 
 if __name__ == "__main__":

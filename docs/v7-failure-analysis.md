@@ -321,3 +321,19 @@ TDS), at no LLM cost.
 - **Heuristic roles.** Collection/scalar roles are read from the AST (iteration, indexing,
   `len()`, arithmetic, comparisons); ambiguous uses are left alone on purpose, which limits both
   the gain and the damage.
+
+### reorder_arguments in the algorithm
+
+`laaser_pinpoint_smt_3.py` now has `reorder_arguments` (off by default): `collection_first` on the
+returned code of tasks without a signature, skipped when the user's answer talks about the
+order (`ORDER_IN_ANSWER`, which keeps Mbpp/128's "first argument" variant). On the code of
+`v7-val-r2` it changes exactly the same 9 variants as the offline script (770/770 identical).
+Smoke-70 run `reorder-s70-r1`: 50/70, TDS 0.687 (v7: 51, 45, 49, 48); no task v7 always passes
+was lost. Its own targets are barely in the smoke set (Mbpp/433 is not; Mbpp/390 was reordered
+but fails for another reason), so the smoke only shows that it breaks nothing; the gain is the
+offline measurement (+5 of 770 with the guard).
+
+Asking about the argument order instead does not help: in 49 order/type failures over two val
+runs, 21 questions were already about the arguments, 10 of them answered at QUALITY=1 (bundled),
+and only 7 answers fixed an order; the 98 MBPP questions that mention the argument order pass
+at 69%, the MBPP average. The order is rarely a hidden requirement.

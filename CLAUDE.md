@@ -295,6 +295,8 @@ Every entry: what changed, why, which script/run measured it, before → after.
   tests: the 9 touched variants 1/9 → 5/9 (Mbpp/433 0/6 → 5/6; Mbpp/128 broken where the answer
   fixed the order). Threats to validity (ad hoc, three task ids, small prior sample) in
   `docs/v7-failure-analysis.md`, update of 2026-10-24.
+- **In the algorithm**: `reorder_arguments` (off by default, guarded by the answer); smoke-70
+  50/70, nothing lost. Asking about the order instead: 98 such MBPP questions pass at 69%, the average.
 
 ## Repo layout cheat-sheet
 
