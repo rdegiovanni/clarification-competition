@@ -25,6 +25,7 @@ from clarify.algorithms.laaser_pinpoint_smt_3 import (
     resolve_by_convention,
     resolve_defects,
     rewrite_spec,
+    shows_signature,
     vote_points,
     witness_question,
 )
@@ -432,6 +433,45 @@ class SubmissionFlagsTest(unittest.TestCase):
         defaults = LAASeR_PinpointSMT.DEFAULT_CONFIG
         self.assertTrue(defaults["use_solver"])
         self.assertFalse(defaults["question_priority"])
+
+
+class StubProfileTest(unittest.TestCase):
+    def test_signature_detection(self):
+        self.assertTrue(shows_signature(STUB))
+        self.assertFalse(shows_signature(TASK))  # prose: "Write a function ..."
+
+    def test_a_stub_task_runs_like_pinpoint(self):
+        env = _FakeEnv([ask(STRICT), CODE_REPLY])  # one audit, no judge, no checklist
+        result = _algo(question_samples=3, checklist=True, stub_profile="pinpoint").run(env, STUB)
+        self.assertIn("x >= k", result)
+        self.assertEqual(len(env.prompts), 2)
+        self.assertNotIn("SHAPE REFERENCE", env.prompts[0])
+
+    def test_a_prose_task_keeps_the_full_configuration(self):
+        env = _FakeEnv([ask(EMPTY), ask(STRICT), "1: PASS\n2: PASS\nBEST: 1", CODE_REPLY])
+        _algo(question_samples=2, stub_profile="pinpoint").run(env, TASK)
+        self.assertEqual(len(env.prompts), 4)  # two audits and the judge, as configured
+
+    def test_same_is_the_default(self):
+        self.assertEqual(LAASeR_PinpointSMT.DEFAULT_CONFIG["stub_profile"], "same")
+
+
+class ArgumentConventionTest(unittest.TestCase):
+    def test_prose_tasks_get_the_rule_in_the_audit_and_the_coding_prompt(self):
+        env = _FakeEnv([ask(STRICT), CODE_REPLY])
+        _algo(argument_convention=True).run(env, TASK)
+        self.assertIn("collection being", env.prompts[0])
+        self.assertIn("collection being", env.prompts[1])
+
+    def test_tasks_that_show_the_signature_do_not(self):
+        env = _FakeEnv([ask(STRICT), CODE_REPLY])
+        _algo(argument_convention=True).run(env, STUB)
+        self.assertNotIn("collection being", env.prompts[0] + env.prompts[1])
+
+    def test_off_by_default(self):
+        env = _FakeEnv([ask(STRICT), CODE_REPLY])
+        _algo().run(env, TASK)
+        self.assertNotIn("collection being", env.prompts[0] + env.prompts[1])
 
 
 if __name__ == "__main__":

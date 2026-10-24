@@ -265,3 +265,59 @@ between the two v7 runs.
   the `def` signature, full v7 when it is prose. If the effects add up, about 287 + 284 = 571/768
   (TDS ~0.715). It only depends on whether the task text shows a signature, never on task ids
   or hidden data. To be measured on val HumanEval first (MBPP is unchanged by it).
+
+## Update 2026-10-24: argument order -- the data structure comes first
+
+### Two results that did not help
+
+- `stub_profile="pinpoint"` (v7's layers off when the prompt shows the `def` line) on val
+  HumanEval: 277/350 (run `stubpp-valhe-r1`) vs. v7 278, 267 and Pinpoint 282, 286, 284. Against
+  Pinpoint's always-passing stub tasks it lost 7 and won 4 that Pinpoint always fails, with the
+  same kind of audit questions (one z3 question in 314): mostly sampling noise.
+- `argument_convention` (a coding rule: "put the collection first, scalars after, unless the
+  answer says otherwise") on val MBPP: 266 vs. 270 / 267 for v7 on the same 386 variants (32
+  variants of run `argconv-valmbpp-r1` came back empty, cost $0, consecutive positions 328-359:
+  an API outage, excluded). The rule reached every prompt, and the model ignored it: Mbpp/433
+  stayed `check_greater(num, arr)` in 6 of 7 variants, following the order the text names them
+  ("the entered number ... the given array"), while the tests call `check_greater(arr, number)`.
+
+### The finding
+
+In passing MBPP code from our runs, functions with one collection and one scalar parameter put
+the collection first in 31 of 33 cases (94%). Debugging Mbpp/433 by hand in `chat.py`
+reproduced the failure: the one question went to "strictly greater?", which the user confirms
+without surprise, and the argument order was guessed from the text.
+
+A prompt cannot enforce it, but a transformation can: `scripts/reorder_collection_first.py`
+swaps the two parameters in the `def` line when the task shows no signature, the function has
+exactly two parameters, and its body uses the first only as a scalar and the second as a
+collection (the body refers to them by name, so nothing else changes). Applied offline to the
+code of `v7-val-r2` and scored with the official tests (`results/whatif/`), same code with and
+without the swap, no sampling:
+
+| | passed (the 9 variants it touches) |
+|---|---|
+| v7 as generated | 1/9 |
+| after the swap | 5/9 |
+
+Mbpp/433 0/6 → 5/6; Mbpp/390 still fails (another defect); Mbpp/128 1 → 0, the one variant
+where the user's answer had fixed the order ("an integer threshold as the first argument"). A
+guard that keeps the order when the answer talks about it would make it +5 of 770 (about +0.005
+TDS), at no LLM cost.
+
+### Threats to validity
+
+- **Ad hoc and possibly overfit.** The rule comes from our own validation runs, and the whole
+  measured gain is three task ids (Mbpp/433, /390, /128), essentially one (Mbpp/433, all its
+  variants). Nothing says the private test set has a task like it; on it the effect may be zero
+  or negative.
+- **Small sample behind the prior.** 33 functions, from runs on the same validation tasks, not
+  an independent corpus; the 94% may not hold elsewhere, and counter-examples exist
+  (Mbpp/28, /651, and Mbpp/128 itself, whose tests call `(n, sentence)`).
+- **Close to fitting the oracle's style.** "Data structure first" is a common Python convention,
+  not a task-specific rule, but we adopt it because MBPP's tests follow it. It never looks at
+  task ids or hidden data; the team should still judge it against CONTRIBUTING.md's "target the
+  task, not the oracle".
+- **Heuristic roles.** Collection/scalar roles are read from the AST (iteration, indexing,
+  `len()`, arithmetic, comparisons); ambiguous uses are left alone on purpose, which limits both
+  the gain and the damage.

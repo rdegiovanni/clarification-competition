@@ -286,6 +286,16 @@ Every entry: what changed, why, which script/run measured it, before → after.
   MBPP, -11.5 on HumanEval. Next: Pinpoint's behaviour when the prompt shows a `def` signature,
   v7 otherwise (`docs/v7-failure-analysis.md`).
 
+### 2026-10-24 — argument order: data structure first (offline what-if)
+
+- **No gain**: `stub_profile="pinpoint"` 277/350 on val HumanEval (Pinpoint 282-286, v7 278/267);
+  `argument_convention` (a coding rule) 266 vs. 270/267 on val MBPP: the model ignores the rule.
+- **Finding**: passing code puts the collection first in 31/33 two-parameter functions. Swapping
+  (scalar, collection) parameters in the code of `v7-val-r2`, scored offline with the official
+  tests: the 9 touched variants 1/9 → 5/9 (Mbpp/433 0/6 → 5/6; Mbpp/128 broken where the answer
+  fixed the order). Threats to validity (ad hoc, three task ids, small prior sample) in
+  `docs/v7-failure-analysis.md`, update of 2026-10-24.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for

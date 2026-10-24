@@ -2932,6 +2932,28 @@ def tolerate_extra_args(code: str, entry_point: str) -> str:
     return code
 
 
+# On the full validation split v7 beat Pinpoint on MBPP (289, 285 vs. 263-282 of 418) and lost
+# on HumanEval (278, 267 vs. 282-286 of 350): its extra layers help when the task is prose
+# and hurt when it already shows the stub and docstring. With stub_profile="pinpoint" a task
+# whose prompt shows `def <entry_point>(` runs with those layers off -- what the task text
+# shows decides, never its id.
+# With argument_convention, a task that does not show its signature gets one more coding rule.
+# In passing MBPP code from our runs with one collection and one scalar parameter, 31 of 33 put
+# the collection first; the failing ones guessed the order of the text instead (Mbpp/433: "the
+# entered number ... the given array" coded as (number, arr), tested as (arr, number)).
+ARGUMENT_RULE = """5. When the task does not fix the order of the arguments, put the collection being
+   processed (list, tuple, string, dict, ...) first and scalar parameters (counts, thresholds,
+   values) after it, unless the user's answer says otherwise."""
+
+PINPOINT_PROFILE = {"checklist": False, "verify": False, "question_samples": 1, "candidates": 1}
+
+
+def shows_signature(problem: dict[str, Any]) -> bool:
+    """Whether the task text shows the entry point's `def` line."""
+    entry = re.escape(problem.get("entry_point") or "")
+    return bool(entry) and bool(re.search(rf"^\s*def\s+{entry}\s*\(", problem["prompt"], re.M))
+
+
 class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
     DEFAULT_CONFIG = {
         # "audit": keep the audit's question; the solver only adds one when the audit would
@@ -2971,6 +2993,13 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # Use the z3 layers when z3 is installed. False behaves exactly as without z3 (the
         # library is not approved yet; the evaluation may run without it).
         "use_solver": True,
+        # "same": every task gets this configuration. "pinpoint": a task that shows its `def`
+        # signature runs with PINPOINT_PROFILE (Pinpoint's audit, no checklist, no sandbox
+        # check, one audit, one candidate); prose tasks keep the full configuration.
+        "stub_profile": "same",
+        # Add ARGUMENT_RULE (collection first, scalars after) to the coding rules of tasks that
+        # do not show their `def` signature.
+        "argument_convention": False,
         "divergence_samples": 4,
         "resolve_votes": 3,
         # "full": answer, then examples checked by z3, then convention (resolve_defects; 39/70
@@ -2995,9 +3024,14 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
     }
 
     def run(self, env: ClarificationEnvironment, problem: dict[str, Any]) -> str:
+        if self.config["stub_profile"] == "pinpoint" and shows_signature(problem):
+            profile = {**self.config, **PINPOINT_PROFILE, "stub_profile": "same"}
+            return type(self)(profile).run(env, problem)
         prompt = problem["prompt"]
         entry_point = problem["entry_point"]
         rules = _rules(entry_point)
+        if self.config["argument_convention"] and not shows_signature(problem):
+            rules = f"{rules.rstrip()}\n{ARGUMENT_RULE}"
         candidate, clarification, answered, coding_problem = "", "", False, problem
 
         try:
