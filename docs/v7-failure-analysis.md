@@ -384,3 +384,9 @@ control (280 / 253). Two hybrid runs: mean 276.5 (251.5 with `def`); v7 family 2
 Pinpoint 283 over four runs, 280 today. Part of the original gap was the date or luck of the
 10-12 runs; on recent runs the hybrid gains about +5 HumanEval tasks over v7, at $0.0020 vs.
 $0.0038 per task. Estimated full candidate: MBPP ~289-293 + HumanEval ~277 ≈ 566-570/768.
+
+Hybrid on smoke-70 (`hybrid-s70-r1`, `--stub_profile pinpoint_exact --reorder_arguments True`):
+48/70, TDS 0.6607, nDCG 0.829 (v7 + reorder 50/70, 0.6870; v7 45-51). HumanEval 27/31 (TDS
+0.8415 on that class alone), MBPP 21/39. MBPP tasks show no `def` and take the v7 + reorder
+path unchanged, so the MBPP dip is sampling noise; within the ±3 of one smoke run. The full val
+run decides.
