@@ -337,3 +337,21 @@ Asking about the argument order instead does not help: in 49 order/type failures
 runs, 21 questions were already about the arguments, 10 of them answered at QUALITY=1 (bundled),
 and only 7 answers fixed an order; the 98 MBPP questions that mention the argument order pass
 at 69%, the MBPP average. The order is rarely a hidden requirement.
+
+## Update 2026-10-25: v7 + reorder_arguments on the full validation split
+
+Run `20261024T152131Z_v7reorder-val-r1` (`--reorder_arguments True`): TDS 0.7033, Pass@1 73.1%,
+nDCG 0.862, $0.0036/task, no empty results.
+
+| | total /768 | MBPP /418 | HumanEval /350 |
+|---|---|---|---|
+| v7 + reorder | 561 | **293** | 268 |
+| v7 (2 runs) | 567, 552 | 289, 285 | 278, 267 |
+| Pinpoint (3 runs) | 545, 561, 566 | 263, 275, 282 | **282, 286, 284** |
+
+- The reorder did what it was meant to: argument order/type failures 15 (v7: 26, 23), Mbpp/433
+  4/7 (v7: 0, 0), and the best MBPP count so far.
+- HumanEval, untouched by it, shows the gap is consistent: the v7 family 278, 267, 268 (mean
+  271) vs. Pinpoint 282, 286, 284 (mean 284) over three runs each.
+- Next: the hybrid -- Pinpoint's exact flow for tasks that show their signature, v7 + reorder
+  for prose tasks; estimated about 293 + 284 = 577/768 (TDS ~0.72).
