@@ -310,6 +310,7 @@ Every entry: what changed, why, which script/run measured it, before → after.
   val HumanEval; Pinpoint control rerun today 280 (10-12 runs 282-286; v7 family 278/267/268).
   One HumanEval run varies by ±5. Second hybrid run 279 (mean 276.5 vs. v7 family 271), level
   with today's Pinpoint (280). Next: the full hybrid candidate on val.
+  Smoke-70: 48/70, TDS 0.6607 (HumanEval 27/31, MBPP 21/39; v7 + reorder 50/70), within noise.
 
 ## Repo layout cheat-sheet
 
