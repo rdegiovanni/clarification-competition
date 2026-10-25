@@ -311,6 +311,8 @@ Every entry: what changed, why, which script/run measured it, before → after.
   One HumanEval run varies by ±5. Second hybrid run 279 (mean 276.5 vs. v7 family 271), level
   with today's Pinpoint (280). Next: the full hybrid candidate on val.
   Smoke-70: 48/70, TDS 0.6607 (HumanEval 27/31, MBPP 21/39; v7 + reorder 50/70), within noise.
+  Full val: TDS 0.6796, 542/768 (MBPP 272, HumanEval 270) vs. v7 + reorder 561: MBPP is the
+  same code, so ±10 tasks of noise per run; HumanEval 274/279/270, no gain. v7 + reorder stays.
 
 ## Repo layout cheat-sheet
 

@@ -390,3 +390,15 @@ Hybrid on smoke-70 (`hybrid-s70-r1`, `--stub_profile pinpoint_exact --reorder_ar
 0.8415 on that class alone), MBPP 21/39. MBPP tasks show no `def` and take the v7 + reorder
 path unchanged, so the MBPP dip is sampling noise; within the ±3 of one smoke run. The full val
 run decides.
+
+Full hybrid candidate on val (`hybrid-val-r1`): TDS 0.6796, 542/768 (MBPP 272, HumanEval 270),
+nDCG 0.844, $0.0028/task; v7 + reorder 561 (293 + 268), v7 567 / 552. The MBPP path is the same
+code as v7 + reorder (diff checked; no empty or zero-cost results), so 272 vs. 293 is sampling
+noise: one full val run varies by about ±10 tasks on MBPP alone. HumanEval for the hybrid is
+274 / 279 / 270 (mean 274) vs. the v7 family's 278 / 267 / 268: no measurable gain. The hybrid
+is not worth the switch; v7 + reorder stays the candidate.
+
+HumanEval/145 (`order_by_points`) fails in all 6 variants of every val run: the code sums the
+digits of `abs(x)`, the tests expect the sign on the first digit (-12 -> -1 + 2). The question
+asked was a generic confirmation. Of the 51 val variants that mention digits, it is the only
+task failing on negative inputs.
