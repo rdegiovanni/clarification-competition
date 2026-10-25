@@ -523,5 +523,34 @@ class ReorderArgumentsTest(unittest.TestCase):
         self.assertIn("(number, arr)", result)
 
 
+class PinpointExactTest(unittest.TestCase):
+    SCENARIOS = {
+        "ask then code": [ask(STRICT), CODE_REPLY],
+        "code at once": [CODE_AUDIT],
+        "repair a missing code block": [ask(STRICT), "no code here", CODE_REPLY],
+        "empty body is kept, as in Pinpoint": [
+            ask(STRICT),
+            "```python\ndef count_greater(arr, k):\n    pass\n```\n",
+        ],
+    }
+
+    def test_the_stub_path_is_pinpoint_line_for_line(self):
+        from clarify.algorithms.laaser_pinpoint import LAASeR_Pinpoint
+
+        for name, replies in self.SCENARIOS.items():
+            with self.subTest(name):
+                ours, theirs = _FakeEnv(list(replies)), _FakeEnv(list(replies))
+                result = _algo(stub_profile="pinpoint_exact").run(ours, STUB)
+                expected = LAASeR_Pinpoint({}).run(theirs, STUB)
+                self.assertEqual(result, expected)
+                self.assertEqual(ours.prompts, theirs.prompts)
+                self.assertEqual(ours.questions, theirs.questions)
+
+    def test_prose_tasks_keep_the_v7_flow(self):
+        env = _FakeEnv([ask(EMPTY), ask(STRICT), "1: PASS\n2: PASS\nBEST: 1", CODE_REPLY])
+        _algo(question_samples=2, stub_profile="pinpoint_exact").run(env, TASK)
+        self.assertEqual(len(env.prompts), 4)  # two audits and the judge: not Pinpoint
+
+
 if __name__ == "__main__":
     unittest.main()

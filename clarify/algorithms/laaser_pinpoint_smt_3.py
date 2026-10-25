@@ -553,8 +553,11 @@ def _parse_question(response: str) -> str | None:
     return question[:MAX_QUESTION_LENGTH]
 
 
-def _check_code(response: str, entry_point: str) -> tuple[str | None, str | None]:
-    """Returns (code, problem); problem is None when the code is usable as-is."""
+def _check_code(
+    response: str, entry_point: str, degenerate: bool = True
+) -> tuple[str | None, str | None]:
+    """Returns (code, problem); problem is None when the code is usable as-is.
+    degenerate=False skips the empty/constant-body check: exactly Pinpoint's version."""
     try:
         code = _validate_and_parse_evalplus_result(response)
     except ValueError:
@@ -578,6 +581,9 @@ def _check_code(response: str, entry_point: str) -> tuple[str | None, str | None
     }
     if entry_point not in defined:
         return code, f"it does not define a function named exactly `{entry_point}`."
+
+    if not degenerate:
+        return code, None
 
     # Not in Pinpoint: a body that does nothing parses fine but can never pass a test.
     function = next(
@@ -675,12 +681,14 @@ def _finalize(
     problem: dict[str, Any],
     response: str,
     clarification: str,
+    degenerate: bool = True,
 ) -> str:
-    """Validates the response, repairing it a bounded number of times; returns best code."""
+    """Validates the response, repairing it a bounded number of times; returns best code.
+    degenerate=False: exactly Pinpoint's version (see _check_code)."""
     entry_point = problem["entry_point"]
     best = ""
     for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
-        code, issue = _check_code(response, entry_point)
+        code, issue = _check_code(response, entry_point, degenerate)
         if code is not None and issue is None:
             return code
         if code is not None and not best:
@@ -3068,6 +3076,9 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # "same": every task gets this configuration. "pinpoint": a task that shows its `def`
         # signature runs with PINPOINT_PROFILE (Pinpoint's audit, no checklist, no sandbox
         # check, one audit, one candidate); prose tasks keep the full configuration.
+        # "pinpoint_exact": such a task runs LAASeR_Pinpoint's own flow (pinpoint_run), line
+        # for line. On val HumanEval Pinpoint passed 282, 286, 284 of 350 and v7 278, 267, 268,
+        # while on MBPP v7 + reorder_arguments passed 293 of 418 vs. Pinpoint's 263-282.
         "stub_profile": "same",
         # Add ARGUMENT_RULE (collection first, scalars after) to the coding rules of tasks that
         # do not show their `def` signature.
@@ -3099,7 +3110,50 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         "tolerate_extra_args": False,
     }
 
+    def pinpoint_run(self, env: ClarificationEnvironment, problem: dict[str, Any]) -> str:
+        """LAASeR_Pinpoint.run, line for line (laaser_pinpoint.py): one audit, the question as
+        the audit wrote it, one coding call, Pinpoint's validation and repairs."""
+        prompt = problem["prompt"]
+        entry_point = problem["entry_point"]
+        rules = _rules(entry_point)
+        candidate = ""
+
+        try:
+            audit = env.llm(
+                _fill(AUDIT_TEMPLATE, prompt=prompt, entry_point=entry_point, rules=rules)
+            )
+            decision = _parse_decision(audit)
+            question = _parse_question(audit)
+
+            if decision == "CODE" or (decision is None and question is None):
+                candidate = _check_code(audit, entry_point, degenerate=False)[0] or ""
+                return _finalize(env, problem, audit, "", degenerate=False) or candidate
+
+            answer = None
+            if question and env.can_ask():
+                try:
+                    answer = env.ask_human(question)
+                except TooManyQuestionException:
+                    answer = None
+
+            clarification = _clarification_block(question, answer)
+            response = env.llm(
+                _fill(CODE_TEMPLATE, prompt=prompt, clarification=clarification, rules=rules)
+            )
+            candidate = _check_code(response, entry_point, degenerate=False)[0] or candidate
+            candidate = (
+                _finalize(env, problem, response, clarification, degenerate=False) or candidate
+            )
+        except (TooManyQuestionException, LimitsExceededException):
+            pass
+        except Exception:
+            pass
+
+        return candidate
+
     def run(self, env: ClarificationEnvironment, problem: dict[str, Any]) -> str:
+        if self.config["stub_profile"] == "pinpoint_exact" and shows_signature(problem):
+            return self.pinpoint_run(env, problem)
         if self.config["stub_profile"] == "pinpoint" and shows_signature(problem):
             profile = {**self.config, **PINPOINT_PROFILE, "stub_profile": "same"}
             return type(self)(profile).run(env, problem)

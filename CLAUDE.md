@@ -304,6 +304,12 @@ Every entry: what changed, why, which script/run measured it, before → after.
   HumanEval 268 (v7 278/267, Pinpoint 282-286: a consistent gap). Next: hybrid (Pinpoint's flow
   for tasks with a signature, v7 + reorder for prose).
 
+### 2026-10-25 — hybrid (Pinpoint's exact flow for tasks with a signature)
+
+- `stub_profile="pinpoint_exact"` (`pinpoint_run`, verified line for line by a test): 274/350 on
+  val HumanEval; Pinpoint control rerun today 280 (10-12 runs 282-286; v7 family 278/267/268).
+  One HumanEval run varies by ±5; second hybrid run pending.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for

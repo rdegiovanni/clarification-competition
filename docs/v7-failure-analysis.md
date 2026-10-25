@@ -355,3 +355,26 @@ nDCG 0.862, $0.0036/task, no empty results.
   271) vs. Pinpoint 282, 286, 284 (mean 284) over three runs each.
 - Next: the hybrid -- Pinpoint's exact flow for tasks that show their signature, v7 + reorder
   for prose tasks; estimated about 293 + 284 = 577/768 (TDS ~0.72).
+
+## Update 2026-10-25 (afternoon): the hybrid, and a Pinpoint control run
+
+`stub_profile="pinpoint_exact"`: a task whose prompt shows its `def` line runs `pinpoint_run()`,
+LAASeR_Pinpoint's `run()` line for line (`_check_code` / `_finalize` with `degenerate=False`,
+which drops the only check v7 added to Pinpoint's validation); prose tasks keep v7 (+
+`reorder_arguments`). A test feeds both algorithms the same scripted replies in four scenarios
+and checks identical prompts, questions and code.
+
+| val HumanEval (350) | total | with `def` (314) | date |
+|---|---|---|---|
+| hybrid (`hybrid-valhe-r1`) | 274 | 249 | 10-25 |
+| Pinpoint, control rerun (`pinpoint-valhe-control`) | 280 | 253 | 10-25 |
+| Pinpoint | 282, 286, 284 | 257, 258, 256 | 10-12 |
+| `stub_profile="pinpoint"` | 277 | 251 | 10-23 |
+| v7 / v7 + reorder | 278, 267, 268 | 250, 242, 244 | 10-21..24 |
+
+- The control rules out a large date effect (the only SDK change since 10-12, `runtime.py` on
+  10-22, cannot explain it either: v7's 10-21 run was already low). Pinpoint stays ahead on
+  HumanEval: four runs, mean 283, vs. the v7 family's 271.
+- One HumanEval run varies by about ±5 tasks: the same Pinpoint code scored 253 and 249 on the
+  stub tasks today. The hybrid's 274 is likely a low draw of identical code, but one run cannot
+  tell; a second run decides whether the hybrid (~293 MBPP + ~283 HumanEval ≈ 576/768) is worth it.
