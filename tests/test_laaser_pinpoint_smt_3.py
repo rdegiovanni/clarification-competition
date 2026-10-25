@@ -552,5 +552,14 @@ class PinpointExactTest(unittest.TestCase):
         self.assertEqual(len(env.prompts), 4)  # two audits and the judge: not Pinpoint
 
 
+class NumberReferenceTest(unittest.TestCase):
+    def test_entry_only_with_flag_and_digits(self):
+        block = laaser_pinpoint_smt_3.checklist_block
+        digits = "Sort the list of integers by the sum of their digits."
+        self.assertNotIn("negative", block(digits))
+        self.assertIn("Digits of negative numbers", block(digits, True))
+        self.assertEqual(block("Return the sum of two numbers.", True), "")
+
+
 if __name__ == "__main__":
     unittest.main()

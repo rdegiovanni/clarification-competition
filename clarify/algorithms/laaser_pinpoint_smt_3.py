@@ -360,6 +360,14 @@ QUESTION_BANK = (
         "Text as a sequence: a string, or a list of words or characters, as input or as result?",
     ),
 )
+# Off by default (config `number_reference`): one numeric entry, for tasks about the digits of
+# numbers. HumanEval/145 failed in every val variant because the code summed the digits of
+# abs(x) where the tests count the sign with the first digit; ad hoc, see the docs.
+NUMBER_ENTRY = (
+    r"\bdigits?\b",
+    "Digits of negative numbers: is the sign ignored, or does it count with the first digit,"
+    " e.g. -12 -> 1 + 2 or -1 + 2?",
+)
 MAX_CHECKLIST = 4
 CHECKLIST_HEADER = """SHAPE REFERENCE (optional). Use it only if a data structure in the task has a shape that the
 text and the examples do not make clear to you; otherwise ignore it. Typical shape questions:"""
@@ -379,11 +387,13 @@ AUDIT_CHECKLIST_TEMPLATE = AUDIT_TEMPLATE.replace(
 )
 
 
-def checklist_block(prompt: str) -> str:
-    """The shape reference for the data structures the task mentions ("" if none)."""
-    lines = [
-        entry for pattern, entry in QUESTION_BANK if re.search(pattern, prompt, re.IGNORECASE)
-    ][:MAX_CHECKLIST]
+def checklist_block(prompt: str, numbers: bool = False) -> str:
+    """The shape reference for the data structures the task mentions ("" if none); with
+    numbers=True, first the digits-of-negative-numbers entry if the task mentions digits."""
+    bank = ((NUMBER_ENTRY,) if numbers else ()) + QUESTION_BANK
+    lines = [entry for pattern, entry in bank if re.search(pattern, prompt, re.IGNORECASE)][
+        :MAX_CHECKLIST
+    ]
     if not lines:
         return ""
     return CHECKLIST_HEADER + "\n" + "".join(f"- {line}\n" for line in lines)
@@ -3098,6 +3108,9 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # binary or N-ary; ...) and ask for shape/format questions with literal readings.
         # False: Pinpoint's audit, verbatim.
         "checklist": True,
+        # Add to that reference, for tasks about digits, how the sign of a negative number
+        # counts (NUMBER_ENTRY). Ad hoc (one task, HumanEval/145); off by default.
+        "number_reference": False,
         # Run the final function in the sandbox on typical calls; repair bug-like crashes and,
         # after a real answer, results the answer rules out.
         "verify": True,
@@ -3285,7 +3298,7 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             prompt=prompt,
             entry_point=entry_point,
             rules=rules,
-            checklist=checklist_block(prompt),
+            checklist=checklist_block(prompt, self.config["number_reference"]),
         )
         if int(self.config["decision_votes"]) > 1:
             audit, decision, question = self.voted_audit(env, prompt, audit_prompt)

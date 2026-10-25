@@ -398,7 +398,28 @@ noise: one full val run varies by about ±10 tasks on MBPP alone. HumanEval for 
 274 / 279 / 270 (mean 274) vs. the v7 family's 278 / 267 / 268: no measurable gain. The hybrid
 is not worth the switch; v7 + reorder stays the candidate.
 
-HumanEval/145 (`order_by_points`) fails in all 6 variants of every val run: the code sums the
-digits of `abs(x)`, the tests expect the sign on the first digit (-12 -> -1 + 2). The question
-asked was a generic confirmation. Of the 51 val variants that mention digits, it is the only
-task failing on negative inputs.
+HumanEval/145 (`order_by_points`, 12 val variants) passes 6 / 5 / 4 / 5 of them per val run;
+the failures sum the digits of `abs(x)` where the tests expect the sign on the first digit
+(-12 -> -1 + 2), after a generic confirmation question. Of the 51 val variants that mention
+digits, it is the only task failing on negative inputs.
+
+### `number_reference`: digits of negative numbers (off by default)
+
+One more entry in the audit's shape reference when the task mentions digits: "is the sign
+ignored, or does it count with the first digit, e.g. -12 -> 1 + 2 or -1 + 2?". Ad hoc: built
+from one task. Measured on the 7 val tasks that mention digits (`validation_digits.txt`, 72
+variants, with `reorder_arguments`):
+
+| Run | Passed / 72 | HumanEval/145 / 12 | Sign questions |
+|---|---|---|---|
+| `number_reference` r1 | 53 | 6 | 18 |
+| `number_reference` r2 | 54 | 7 | 21 |
+| control (same day) | 53 | 6 | 11 |
+| earlier val runs (v7, v7, v7 + reorder) | 54 / 52 / 50 | 6 / 5 / 4 | - |
+
+No gain. The question works (18 of 24 HumanEval/145 variants asked about the sign and got the
+right answer), but most of those still failed on something else: a perturbation saying "return
+the result as a string" that the coder followed, or a tie-break with `nums.index(x)` in the sort
+key, which breaks the stable order for duplicates ([0, 0, -1, 1, 10, 1] -> 1 before 10). That
+`.index()` pattern appears in 0-2 variants per val run, all of them HumanEval/145. The flag
+stays off.

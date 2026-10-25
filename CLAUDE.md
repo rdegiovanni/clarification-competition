@@ -313,6 +313,8 @@ Every entry: what changed, why, which script/run measured it, before → after.
   Smoke-70: 48/70, TDS 0.6607 (HumanEval 27/31, MBPP 21/39; v7 + reorder 50/70), within noise.
   Full val: TDS 0.6796, 542/768 (MBPP 272, HumanEval 270) vs. v7 + reorder 561: MBPP is the
   same code, so ±10 tasks of noise per run; HumanEval 274/279/270, no gain. v7 + reorder stays.
+- `number_reference` (sign of negative numbers in digit tasks, off by default): 53, 54 of 72 on
+  the digit tasks vs. control 53; the sign gets asked and answered, other requirements still fail.
 
 ## Repo layout cheat-sheet
 
