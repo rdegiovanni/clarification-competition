@@ -378,3 +378,9 @@ and checks identical prompts, questions and code.
 - One HumanEval run varies by about ±5 tasks: the same Pinpoint code scored 253 and 249 on the
   stub tasks today. The hybrid's 274 is likely a low draw of identical code, but one run cannot
   tell; a second run decides whether the hybrid (~293 MBPP + ~283 HumanEval ≈ 576/768) is worth it.
+
+Second hybrid run (`hybrid-valhe-r2`): 279/350 (254 with `def`), level with today's Pinpoint
+control (280 / 253). Two hybrid runs: mean 276.5 (251.5 with `def`); v7 family 271 (245.3);
+Pinpoint 283 over four runs, 280 today. Part of the original gap was the date or luck of the
+10-12 runs; on recent runs the hybrid gains about +5 HumanEval tasks over v7, at $0.0020 vs.
+$0.0038 per task. Estimated full candidate: MBPP ~289-293 + HumanEval ~277 ≈ 566-570/768.

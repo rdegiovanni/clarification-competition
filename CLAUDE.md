@@ -308,7 +308,8 @@ Every entry: what changed, why, which script/run measured it, before → after.
 
 - `stub_profile="pinpoint_exact"` (`pinpoint_run`, verified line for line by a test): 274/350 on
   val HumanEval; Pinpoint control rerun today 280 (10-12 runs 282-286; v7 family 278/267/268).
-  One HumanEval run varies by ±5; second hybrid run pending.
+  One HumanEval run varies by ±5. Second hybrid run 279 (mean 276.5 vs. v7 family 271), level
+  with today's Pinpoint (280). Next: the full hybrid candidate on val.
 
 ## Repo layout cheat-sheet
 
