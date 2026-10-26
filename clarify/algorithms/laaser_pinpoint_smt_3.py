@@ -368,6 +368,30 @@ NUMBER_ENTRY = (
     "Digits of negative numbers: is the sign ignored, or does it count with the first digit,"
     " e.g. -12 -> 1 + 2 or -1 + 2?",
 )
+# Off by default (config `format_question`): when the task states a return format ("return the
+# result as a string", "must be an integer", ...), the question goes to the return format. In
+# the val runs' HumanEval larbi_contradictory variants, questions about the return format passed
+# 57% vs. 21% for other topics; those variants inject 3-5 statements and the tests observe the
+# return value, not "no loops" or "O(1)".
+RETURN_FORMAT_STATEMENT = re.compile(
+    r"\b(?:return|output|deliver|give)\w*\b[^.\n]{0,60}\b(?:as a string|as strings?|string"
+    r" representation|as an integer|as a tuple|as a list|as a boolean|binary number|should be a"
+    r" string|must be an integer|needs to be an integer)",
+    re.IGNORECASE,
+)
+FORMAT_TOPIC = re.compile(
+    r"\b(?:as a string|a string|the string|string representation|return type|returned as"
+    r"|return (?:a|an) (?:list|integer|int|string|tuple|bool|boolean|float)|integer or|list or"
+    r"|or a list|or an integer|or a string|tuple|boolean|data type"
+    r"|type of the (?:output|result|return))\b",
+    re.IGNORECASE,
+)
+FORMAT_QUESTION_RULE = """RETURN FORMAT. The task states a format for the return value. The hidden tests compare return
+values, so if you ask, ask about the type and format of the return value, showing the competing
+readings as Python literals for one example input, e.g. QUESTION: For [1, 2], should the result
+be [2, 1] or the string '2, 1'? Requirements the tests cannot observe (loops, time complexity)
+are never worth the question.
+"""
 MAX_CHECKLIST = 4
 CHECKLIST_HEADER = """SHAPE REFERENCE (optional). Use it only if a data structure in the task has a shape that the
 text and the examples do not make clear to you; otherwise ignore it. Typical shape questions:"""
@@ -3111,6 +3135,9 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # Add to that reference, for tasks about digits, how the sign of a negative number
         # counts (NUMBER_ENTRY). Ad hoc (one task, HumanEval/145); off by default.
         "number_reference": False,
+        # When the task states a return format, ask about the return format (audit rule, and a
+        # sampled question about it preferred over the judge's choice). Off by default.
+        "format_question": False,
         # Run the final function in the sandbox on typical calls; repair bug-like crashes and,
         # after a real answer, results the answer rules out.
         "verify": True,
@@ -3230,7 +3257,16 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
                 question = atomic_question(question)
             if question and _parse_decision(other) != "CODE":
                 questions.append(question)
+        if self.format_question(prompt):
+            # A sampled question about the return format wins over the judge's choice.
+            about_format = [q for q in questions if FORMAT_TOPIC.search(q)]
+            if about_format:
+                return about_format[0]
         return self.pick_question(env, prompt, questions)
+
+    def format_question(self, prompt: str) -> bool:
+        """`format_question` is on and the task states a return format."""
+        return bool(self.config["format_question"] and RETURN_FORMAT_STATEMENT.search(prompt))
 
     def pick_question(
         self, env: ClarificationEnvironment, prompt: str, questions: list[str]
@@ -3298,7 +3334,8 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             prompt=prompt,
             entry_point=entry_point,
             rules=rules,
-            checklist=checklist_block(prompt, self.config["number_reference"]),
+            checklist=checklist_block(prompt, self.config["number_reference"])
+            + (FORMAT_QUESTION_RULE if self.format_question(prompt) else ""),
         )
         if int(self.config["decision_votes"]) > 1:
             audit, decision, question = self.voted_audit(env, prompt, audit_prompt)

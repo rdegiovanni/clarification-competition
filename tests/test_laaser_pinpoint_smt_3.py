@@ -561,5 +561,27 @@ class NumberReferenceTest(unittest.TestCase):
         self.assertEqual(block("Return the sum of two numbers.", True), "")
 
 
+class FormatQuestionTest(unittest.TestCase):
+    FORMAT_TASK = (
+        "Write a function to sort a list by digit sum. However, the function should return the"
+        " result as a string. It must not use any loops."
+    )
+    LOOPS = "Should the function avoid loops entirely, including comprehensions?"
+    FORMAT = "For [12, 3], should the result be [3, 12] or the string '3, 12'?"
+
+    def test_trigger_needs_flag_and_statement(self):
+        on = _algo(format_question=True)
+        self.assertTrue(on.format_question(self.FORMAT_TASK))
+        self.assertFalse(on.format_question(TASK["prompt"]))
+        self.assertFalse(_algo().format_question(self.FORMAT_TASK))
+
+    def test_format_question_preferred_over_judge(self):
+        env = _FakeEnv([ask(self.FORMAT)])  # the second sampled audit; no judge call
+        algo = _algo(format_question=True, question_samples=2)
+        chosen = algo.choose_question(env, self.FORMAT_TASK, "audit prompt", self.LOOPS)
+        self.assertEqual(chosen, self.FORMAT)
+        self.assertEqual(len(env.prompts), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

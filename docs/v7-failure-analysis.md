@@ -478,3 +478,42 @@ as insertions) and names the perturbation file it comes from. Failures over four
   format), but those variants inject 3-5 statements each and one question settles one.
 - Returning a stringified value (`got` printed equal to `expected`, or a joined list): 7-10
   failures per run, all larbi_contradictory.
+
+### `format_question`: ask about the return format (off by default)
+
+When the task states a return format (`RETURN_FORMAT_STATEMENT`: "return ... as a string",
+"must be an integer", ...), the audit is told to ask about the return value's type and format
+with literal readings, and a sampled question about it wins over the judge's choice. Rationale:
+in HumanEval larbi_contradictory, format questions passed 57% vs. 21% for other topics (four
+val runs; selection-biased). Measured on the val variants that trip the trigger
+(`scripts/make_format_set.py`; the dataset loader keeps one variant per task id, so 19 HumanEval
+variants: 18 larbi_contradictory and one HumanEval/65):
+
+| Run | Passed / 19 | Format questions |
+|---|---|---|
+| `format_question` r1 / r2 | 3 / 6 | 11 / 15 |
+| control (same day) r1 / r2 | 5 / 1 | 10 / 8 |
+| earlier val runs | 3 / 3 / 3 / 4 | - |
+
+No measurable gain (the control alone spans 1-5). Why the right question still fails:
+
+1. **The simulated user confirms the injected statement.** HumanEval/60: "should the output be
+   the string '15' or ...?" -> "The output should be the string representation of the sum ...
+   such as '15'"; the test expects the int. Same for HumanEval/66 ("also return the input
+   reversed") and HumanEval/57 (a tuple for string inputs). The oracle sometimes answers from the
+   perturbed text, not the original task.
+2. **The coder overrides a correct answer when the whole prompt says the opposite.**
+   HumanEval/36: answer "as an integer"; the signature says `-> str`, the doctests `'0'` and the
+   text "The output should be a string", and the code returned `str(...)` (after 80 lines of
+   comments on "no loops / O(1)", which coding rule 2 says to ignore).
+3. **The question still goes elsewhere**: about half of what the topic regex counts as format
+   questions only mention the word "string".
+
+Example markers are not the cause either ("such as", "e.g.", "for example", "like"; four val
+runs): QUALITY=3 answers with one pass 81.7% (104) vs. 74.4% without (2,551); prompts with one
+70.6% (272) vs. 72.5% (2,808). In an answer the example is usually its most precise part
+("-12 -> -1 + 2"); when an answer is wrong, the normative statement it illustrates is wrong.
+
+**Threat to validity of the benchmark (affects every team):** in larbi_contradictory variants
+the simulated user can confirm an injected statement that the hidden tests (the original task)
+contradict, so a correct, atomic question can still bring back a wrong answer.
