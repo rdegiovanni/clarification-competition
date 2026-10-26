@@ -340,6 +340,8 @@ Every entry: what changed, why, which script/run measured it, before → after.
 - `format_question="dedicated"` (v3: plus one call that writes the contrastive question when no
   sampled one is): 7, 7 of 19, above all six controls (mean 3.2); the user answers "the
   integer, not the string" 5-7 times per run vs. 1. Expected +3-4 tasks per val run.
+  HumanEval/65 (original says "as a string", 12 variants): v3 7, 5 vs. controls mean 6.5,
+  within noise. Candidate: v7 + `reorder_arguments` + `format_question="dedicated"`.
 
 ## Repo layout cheat-sheet
 

@@ -566,3 +566,18 @@ pass in both. The remaining failures mostly have another hidden requirement (Hum
 val the trigger fires on ~29 variants per run, so the expected gain is +3-4 tasks per run. Open
 risk: HumanEval/65, whose original task does state "return the result as a string" (9 val
 variants; the dataset loader kept one).
+
+HumanEval/65 check (its original task does say "return the result as a string"; all 12 val
+variants, one per dataset file because the loader keeps one variant per task id:
+`results/format_sets/he65/run.sh`). The trigger fires on 9 of them; there v3 asks "the string
+'21' or the integer 21?" and the user answers "string", which spends the question on a format
+already right:
+
+| Run | Passed / 12 |
+|---|---|
+| v3 r1 / r2 | 7 / 5 |
+| control r1 / r2 | 7 / 8 |
+| earlier val runs | 6 / 6 / 6 / 6 |
+
+v3 mean 6.0 vs. 6.5 for six controls: within noise. Net expected on a val run: +3.8 on the 19
+injected-format variants, about -0.5 on HumanEval/65, so about +3 tasks.
