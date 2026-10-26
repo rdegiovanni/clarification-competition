@@ -392,6 +392,30 @@ readings as Python literals for one example input, e.g. QUESTION: For [1, 2], sh
 be [2, 1] or the string '2, 1'? Requirements the tests cannot observe (loops, time complexity)
 are never worth the question.
 """
+# format_question="contrast": the readings must set the stated format against the natural type.
+# With v1 the model wrote both readings in the stated format ("the string '15' or '12345'?") and
+# the user answered within them, although its hidden requirement said "an integer, not a
+# string" (HumanEval/60).
+FORMAT_CONTRAST_RULE = """RETURN FORMAT. The task states a format for the return value, and that statement may be wrong.
+The hidden tests compare return values, so if you ask, ask about the type of the return value:
+one reading is the format the task states, the other the type the function would naturally
+return without that statement, both as Python literals for the same call, e.g. QUESTION: Should
+total(5) return the integer 15 or the string '15'? Requirements the tests cannot observe (loops,
+time complexity) are never worth the question.
+"""
+# A question that names a non-string type and a string reading: it lets the user say "integer".
+TYPED_READING = re.compile(
+    r"\b(?:integers?|int|floats?|lists?|tuples?|booleans?|bool|True|False|dict"
+    r"|dictionary)\b",
+    re.IGNORECASE,
+)
+STRING_READING = re.compile(r"\bstrings?\b|'[^']*'|\"[^\"]*\"", re.IGNORECASE)
+# With the contrast, the coder follows the answer over the task: in HumanEval/36 the answer said
+# "as an integer" and the code returned str(...) because the signature (-> str), the doctests
+# ('0') and the text all said string.
+ANSWER_OVERRIDES_RULE = """5. If the user answered a question, the answer overrides the task text, the signature, the type
+   hints and the examples. If the answer states the return type, return exactly that type and
+   change the signature to match."""
 MAX_CHECKLIST = 4
 CHECKLIST_HEADER = """SHAPE REFERENCE (optional). Use it only if a data structure in the task has a shape that the
 text and the examples do not make clear to you; otherwise ignore it. Typical shape questions:"""
@@ -409,6 +433,11 @@ AUDIT_CHECKLIST_TEMPLATE = AUDIT_TEMPLATE.replace(
     + "Ask about one thing only, and never ask for test cases or for the implementation.\n",
     1,
 )
+
+
+def contrastive(question: str) -> bool:
+    """The question sets a typed reading (integer, list, True ...) against a string reading."""
+    return bool(TYPED_READING.search(question) and STRING_READING.search(question))
 
 
 def checklist_block(prompt: str, numbers: bool = False) -> str:
@@ -3137,6 +3166,8 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         "number_reference": False,
         # When the task states a return format, ask about the return format (audit rule, and a
         # sampled question about it preferred over the judge's choice). Off by default.
+        # "contrast": the readings set the stated format against the natural type, and the
+        # coder follows the answer over the signature, type hints and examples.
         "format_question": False,
         # Run the final function in the sandbox on typical calls; repair bug-like crashes and,
         # after a real answer, results the answer rules out.
@@ -3202,6 +3233,8 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         rules = _rules(entry_point)
         if self.config["argument_convention"] and not shows_signature(problem):
             rules = f"{rules.rstrip()}\n{ARGUMENT_RULE}"
+        if self.config["format_question"] == "contrast" and self.format_question(prompt):
+            rules = f"{rules.rstrip()}\n{ANSWER_OVERRIDES_RULE}"
         candidate, clarification, answered, coding_problem = "", "", False, problem
 
         try:
@@ -3258,11 +3291,19 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             if question and _parse_decision(other) != "CODE":
                 questions.append(question)
         if self.format_question(prompt):
-            # A sampled question about the return format wins over the judge's choice.
+            # A sampled question about the return format wins over the judge's choice; with
+            # "contrast", only one that sets a typed reading against a string reading.
             about_format = [q for q in questions if FORMAT_TOPIC.search(q)]
+            if self.config["format_question"] == "contrast":
+                about_format = [q for q in questions if contrastive(q)]
             if about_format:
                 return about_format[0]
         return self.pick_question(env, prompt, questions)
+
+    def format_rule(self) -> str:
+        if self.config["format_question"] == "contrast":
+            return FORMAT_CONTRAST_RULE
+        return FORMAT_QUESTION_RULE
 
     def format_question(self, prompt: str) -> bool:
         """`format_question` is on and the task states a return format."""
@@ -3335,7 +3376,7 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             entry_point=entry_point,
             rules=rules,
             checklist=checklist_block(prompt, self.config["number_reference"])
-            + (FORMAT_QUESTION_RULE if self.format_question(prompt) else ""),
+            + (self.format_rule() if self.format_question(prompt) else ""),
         )
         if int(self.config["decision_votes"]) > 1:
             audit, decision, question = self.voted_audit(env, prompt, audit_prompt)

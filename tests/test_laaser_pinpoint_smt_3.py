@@ -583,5 +583,33 @@ class FormatQuestionTest(unittest.TestCase):
         self.assertEqual(len(env.prompts), 1)
 
 
+class FormatContrastTest(unittest.TestCase):
+    TASK = {
+        "prompt": 'def total(n):\n    """Sum 1..n. The output should be returned as a string."""',
+        "entry_point": "total",
+    }
+    SAME_TYPE = "Should total(5) return the string '15' or the concatenation '12345'?"
+    CONTRAST = "Should total(5) return the integer 15 or the string '15'?"
+
+    def test_contrastive_question_preferred(self):
+        env = _FakeEnv([ask(self.CONTRAST)])
+        algo = _algo(format_question="contrast", question_samples=2)
+        chosen = algo.choose_question(env, self.TASK["prompt"], "audit", self.SAME_TYPE)
+        self.assertEqual(chosen, self.CONTRAST)
+
+    def test_audit_and_coder_get_the_contrast_rules(self):
+        code = "```python\ndef total(n):\n    return n * (n + 1) // 2\n```\n"
+        env = _FakeEnv([ask(self.CONTRAST), code], answer="The integer 15, not a string.")
+        _algo(format_question="contrast", checklist=True).run(env, self.TASK)
+        self.assertIn("the type the function would naturally", env.prompts[0])
+        self.assertIn("the answer overrides the task text", env.prompts[1])
+
+    def test_untriggered_task_unchanged(self):
+        env = _FakeEnv([CODE_AUDIT])
+        _algo(format_question="contrast").run(env, TASK)
+        self.assertNotIn("RETURN FORMAT", env.prompts[0])
+        self.assertNotIn("the answer overrides", env.prompts[0])
+
+
 if __name__ == "__main__":
     unittest.main()

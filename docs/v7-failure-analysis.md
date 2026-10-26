@@ -495,25 +495,54 @@ variants: 18 larbi_contradictory and one HumanEval/65):
 | control (same day) r1 / r2 | 5 / 1 | 10 / 8 |
 | earlier val runs | 3 / 3 / 3 / 4 | - |
 
-No measurable gain (the control alone spans 1-5). Why the right question still fails:
+No measurable gain (the control alone spans 1-5). Why the format question still fails, checked
+against the hidden requirements the simulated user receives (`data/clarifications.jsonl`;
+read for analysis only, never by the algorithm):
 
-1. **The simulated user confirms the injected statement.** HumanEval/60: "should the output be
-   the string '15' or ...?" -> "The output should be the string representation of the sum ...
-   such as '15'"; the test expects the int. Same for HumanEval/66 ("also return the input
-   reversed") and HumanEval/57 (a tuple for string inputs). The oracle sometimes answers from the
-   perturbed text, not the original task.
+1. **The question presupposes the injected format.** HumanEval/60: the user's hidden
+   requirement says "return an integer value, not a string", but we asked "should the output be
+   the string '15' (the sum) or '12345' (a concatenation)?": both readings were strings, so the
+   user answered within them ("the string representation of the sum, such as '15'").
 2. **The coder overrides a correct answer when the whole prompt says the opposite.**
    HumanEval/36: answer "as an integer"; the signature says `-> str`, the doctests `'0'` and the
    text "The output should be a string", and the code returned `str(...)` (after 80 lines of
    comments on "no loops / O(1)", which coding rule 2 says to ignore).
-3. **The question still goes elsewhere**: about half of what the topic regex counts as format
-   questions only mention the word "string".
+3. **The question is too narrow or goes elsewhere.** HumanEval/57: asked only about the False
+   case, so the code still returned `(True, 17)`; about half of what the topic regex counts as
+   format questions only mention the word "string".
+
+Only HumanEval/66, whose variant has no hidden requirement on that point, got an answer made
+up from the perturbed text. *Correction:* an earlier version of this section (commit
+`d6ccf5b`) blamed the simulated user for confirming injected formats; the hidden requirements
+show it knows the right format, and cases 1-3 are ours.
 
 Example markers are not the cause either ("such as", "e.g.", "for example", "like"; four val
 runs): QUALITY=3 answers with one pass 81.7% (104) vs. 74.4% without (2,551); prompts with one
 70.6% (272) vs. 72.5% (2,808). In an answer the example is usually its most precise part
 ("-12 -> -1 + 2"); when an answer is wrong, the normative statement it illustrates is wrong.
 
-**Threat to validity of the benchmark (affects every team):** in larbi_contradictory variants
-the simulated user can confirm an injected statement that the hidden tests (the original task)
-contradict, so a correct, atomic question can still bring back a wrong answer.
+**Lesson:** when the task states a format, the question has to contrast the stated format
+with the natural type (`15` or `'15'`), and the coder has to follow the answer over the
+signature, hints and examples: `format_question="contrast"`, below.
+
+### `format_question="contrast"` (v2, off by default)
+
+The audit rule asks for readings that set the stated format against the natural type ("the
+integer 15 or the string '15'"); among the sampled questions, one that names a typed reading and
+a string reading wins (`contrastive`); and the coder gets rule 5, "the answer overrides the task
+text, the signature, the type hints and the examples". Same 19 variants:
+
+| Run | Passed / 19 | Contrastive questions |
+|---|---|---|
+| v2 r1 / r2 | 5 / 5 | 12 / 15 |
+| v1 r1 / r2 | 3 / 6 | 11 / 10 |
+| control r1 / r2 | 5 / 1 | 10 / 8 |
+| earlier val runs | 3 / 3 / 3 / 4 | - |
+
+Mean 5.0 vs. 3.2 for the six control runs and 4.5 for v1: about +2 tasks per val run, not
+significant on two runs. Where it fires, the mechanism works: HumanEval/60 failed in all six
+earlier runs and passes in both (contrastive question, answer "integer", code follows it);
+HumanEval/73 and /115 pass in both. The limit: the audit still asks about another injected
+statement in about half of the variants (HumanEval/40 and /72 return `"False"` after questions
+about "maintain order" and "1 or the sum"), and the preference can only choose among the sampled
+questions.

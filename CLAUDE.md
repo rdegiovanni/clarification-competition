@@ -329,9 +329,10 @@ Every entry: what changed, why, which script/run measured it, before → after.
   formalization can reach at most ~36 of ~210 failures, under one run's noise. Callout and
   details at the top of `docs/v7-failure-analysis.md`.
 - `format_question` (ask about the return format when the task states one, off by default): 3, 6
-  of 19 vs. control 5, 1 (earlier 3-4). The simulated user sometimes confirms the injected
-  format (HumanEval/60), and the coder overrides a correct answer when hints, doctests and text
-  all say the opposite (HumanEval/36). Example markers ("such as", "e.g.") do not hurt: answers
+  of 19 vs. control 5, 1 (earlier 3-4). The simulated user knows the right format (hidden
+  requirements); our question presupposed the injected one (HumanEval/60: '15' or '12345'),
+  and the coder overrode a correct answer when hints, doctests and text all said the opposite
+  (HumanEval/36). Corrects the oracle claim of `d6ccf5b`. Example markers ("such as", "e.g.") do not hurt: answers
   with one pass 81.7% vs. 74.4%.
 
 ## Repo layout cheat-sheet
