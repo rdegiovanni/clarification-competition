@@ -316,6 +316,19 @@ Every entry: what changed, why, which script/run measured it, before → after.
 - `number_reference` (sign of negative numbers in digit tasks, off by default): 53, 54 of 72 on
   the digit tasks vs. control 53; the sign gets asked and answered, other requirements still fail.
 
+### 2026-10-26 — KEY FINDING: the remaining failures are structural, not a formalization defect
+
+- **What**: `scripts/injected_statements.py` (offline, no LLM) diffs every val variant against
+  its unperturbed prompt and names its perturbation file; four val runs analysed.
+- **Result**: per run, 17 failures on unperturbed tasks (the coder's floor); 64% of failures on
+  tasks with 2+ hidden requirements; the largest class, HumanEval `larbi_contradictory` (19 of
+  30 variants fail), is 14 wrong-type returns that obey an injected format statement which the
+  perturbation also wrote into the type hints and the examples.
+- **Reading it**: no signal in the prompt contradicts those statements; fixing them would mean
+  ignoring the task in favour of the original benchmark (disqualified). Post-answer
+  formalization can reach at most ~36 of ~210 failures, under one run's noise. Callout and
+  details at the top of `docs/v7-failure-analysis.md`.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for

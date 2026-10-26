@@ -5,6 +5,28 @@ File analysed: `clarify/algorithms/laaser_pinpoint_smt_3.py` (v7: `question_samp
 Smoke set: `--smoke-source val --smoke-size 70 --smoke-seed 42`, `openai/gpt-4.1-mini`,
 temperature 0.7.
 
+> [!IMPORTANT]
+> **Key finding (2026-10-26): the remaining failures are mostly not fixable by better
+> formalization.** Per val run (~210 failures, mean of four runs):
+>
+> - **17 fail on unperturbed tasks**: the coder's own error rate, a floor no clarification
+>   removes.
+> - **64% of the failures are tasks with 2+ hidden requirements**: with one clarification turn,
+>   at least one requirement never reaches the coder, and formalizing cannot recover information
+>   that was never given.
+> - **The largest single class, HumanEval `larbi_contradictory` (19 of 30 variants fail), has no
+>   legitimate fix**: in 14 of them the code obeys an injected output-format statement ("return
+>   the result as a string", "also return the sum") and returns `"0"`, `"2, 3, 1, 3"`,
+>   `(True, 17)` or `"four"`. The perturbation also rewrote the type hints and the examples, so
+>   text, signature and examples all agree on the wrong format; only the original benchmark
+>   knows it is wrong. Ignoring it would target the benchmark, not the task (disqualified by
+>   CONTRIBUTING.md).
+> - Formalization acts only after the answer, where at most ~36 of ~210 failures could be
+>   rescued (17%), below the ±10 tasks of noise of one val run. That is why every post-answer
+>   layer measured here (resolver, spec rewrite, JSON contract, convention) tied.
+>
+> Details: "Update 2026-10-26: injected statements" at the end of this file.
+
 ## Runs
 
 | Run | Config | TDS | Passed | nDCG | Clar. rate | Over-asking | Cost/task |
@@ -423,3 +445,36 @@ the result as a string" that the coder followed, or a tie-break with `nums.index
 key, which breaks the stable order for duplicates ([0, 0, -1, 1, 10, 1] -> 1 before 10). That
 `.index()` pattern appears in 0-2 variants per val run, all of them HumanEval/145. The flag
 stays off.
+
+## Update 2026-10-26: injected statements (offline, no LLM)
+
+`scripts/injected_statements.py` diffs every val variant against its unperturbed prompt
+(`data/<class>/<class>_original.jsonl`) word by word (typos of a deleted word are not counted
+as insertions) and names the perturbation file it comes from. Failures over four val runs
+(v7 r1, v7 r2, v7 + reorder, hybrid), per run:
+
+| Perturbation | Pass % | Failures per run |
+|---|---|---|
+| larbi_contradictory | 55.3 | 40.2 |
+| larbi_ambiguous | 64.7 | 31.8 |
+| larbi_incomplete | 67.0 | 29.0 |
+| akli_lexical_vagueness | 75.0 | 22.2 |
+| akli_syntax_and_formatting | 76.4 | 21.2 |
+| akli_under-specification | 79.6 | 18.8 |
+| original (unperturbed) | 81.4 | 16.8 |
+| wu_* (seven files, 141 variants) | 58-100 | 32.7 |
+
+- The unperturbed tasks fail 17 times per run: the coder's own error rate, the floor of what a
+  better clarification can reach.
+- Biggest bucket: HumanEval larbi_contradictory, ~19 failures per run out of 30 variants. 14 of
+  them are a wrong type: the code obeys an injected format statement ("return the result as a
+  string", "also return the sum", a success message) and returns `"0"`, `"2, 3, 1, 3"`,
+  `(True, 17)` or `"four"` where the tests expect `0`, `[2, 3, 1, 3]`, `True`, `4`.
+- There is no signal in the prompt against those statements: the perturbation also rewrote the
+  type hints (`-> str` on `fizz_buzz`) and the examples (`== "four"`, `== "-1, -11, 1, -12, 11"`).
+  Only the original benchmark knows the format is wrong. Ignoring a format the task states, its
+  hints and its examples all agree on would target the benchmark rather than the task, which
+  CONTRIBUTING.md disqualifies. The legitimate lever is the question (ask about the return
+  format), but those variants inject 3-5 statements each and one question settles one.
+- Returning a stringified value (`got` printed equal to `expected`, or a joined list): 7-10
+  failures per run, all larbi_contradictory.
