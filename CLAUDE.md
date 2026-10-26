@@ -347,7 +347,9 @@ Every entry: what changed, why, which script/run measured it, before → after.
 
 - 558/768 vs. v7 + reorder 561. On the 29 variants where the format trigger fires (the only
   ones where the code differs) 13 vs. 7-9 in four earlier runs; on the other 739, identical
-  code, 545 vs. 553 (v7 r1 and r2 differ by 17 there). Second run next.
+  code, 545 vs. 553 (v7 r1 and r2 differ by 17 there).
+- Second run: TDS 0.7144, 570/768 (best so far); trigger variants 14/29. Mean of two 564, TDS
+  0.7070 vs. v7 + reorder 561 / 0.7033 and v7 559.5 / 0.7007. This is the submission candidate.
 
 ## Repo layout cheat-sheet
 

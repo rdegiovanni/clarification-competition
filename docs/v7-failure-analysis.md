@@ -599,3 +599,16 @@ On the 29 variants the candidate passes 13 vs. 7-9 (+5 over the mean of four run
 739 the code is the same as v7 + reorder (the hybrid differs on HumanEval), and the 545 vs. 553
 is sampling noise: v7 r1 and r2 differ by 17 there on identical code. One run cannot separate the
 totals; a second candidate run follows.
+
+Second run (`candidate-val-r2`): TDS 0.7144, 570/768 (MBPP 290, HumanEval 280), nDCG 0.855,
+$0.0035/task, the best val run so far.
+
+| Run | Total | 29 trigger variants | other 739 | TDS |
+|---|---|---|---|---|
+| candidate r1 / r2 | 558 / 570 (mean 564) | 13 / 14 | 545 / 556 | 0.6995 / 0.7144 (mean 0.7070) |
+| v7 + reorder | 561 | 8 | 553 | 0.7033 |
+| v7 r1 / r2 | 567 / 552 (mean 559.5) | 7 / 9 | 560 / 543 | 0.7108 / 0.6906 (mean 0.7007) |
+
+The +5 on the trigger variants repeats (13, 14 vs. 7-9 in four runs); the other 739 stay within
+the v7 family's range. Candidate for the submission: v7 + `reorder_arguments` +
+`format_question="dedicated"`.
