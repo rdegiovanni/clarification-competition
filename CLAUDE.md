@@ -343,6 +343,12 @@ Every entry: what changed, why, which script/run measured it, before → after.
   HumanEval/65 (original says "as a string", 12 variants): v3 7, 5 vs. controls mean 6.5,
   within noise. Candidate: v7 + `reorder_arguments` + `format_question="dedicated"`.
 
+### 2026-10-26 — candidate (v7 + reorder + format_question=dedicated) on val: TDS 0.6995
+
+- 558/768 vs. v7 + reorder 561. On the 29 variants where the format trigger fires (the only
+  ones where the code differs) 13 vs. 7-9 in four earlier runs; on the other 739, identical
+  code, 545 vs. 553 (v7 r1 and r2 differ by 17 there). Second run next.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for

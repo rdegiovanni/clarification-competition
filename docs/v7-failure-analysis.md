@@ -581,3 +581,21 @@ already right:
 
 v3 mean 6.0 vs. 6.5 for six controls: within noise. Net expected on a val run: +3.8 on the 19
 injected-format variants, about -0.5 on HumanEval/65, so about +3 tasks.
+
+## Update 2026-10-26: the candidate on the full validation split
+
+Candidate: v7 + `reorder_arguments` + `format_question="dedicated"` (`candidate-val-r1`).
+TDS 0.6995, 558/768, nDCG 0.865, $0.0035/task. Split by whether the format trigger fires (the
+only variants where the candidate's code differs from v7 + reorder):
+
+| Run | Total | 29 trigger variants | other 739 | TDS |
+|---|---|---|---|---|
+| candidate r1 | 558 | **13** | 545 | 0.6995 |
+| v7 + reorder | 561 | 8 | 553 | 0.7033 |
+| v7 r1 / r2 | 567 / 552 | 7 / 9 | 560 / 543 | 0.7108 / 0.6906 |
+| hybrid | 542 | 8 | 534 | 0.6796 |
+
+On the 29 variants the candidate passes 13 vs. 7-9 (+5 over the mean of four runs). On the other
+739 the code is the same as v7 + reorder (the hybrid differs on HumanEval), and the 545 vs. 553
+is sampling noise: v7 r1 and r2 differ by 17 there on identical code. One run cannot separate the
+totals; a second candidate run follows.
