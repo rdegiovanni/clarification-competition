@@ -416,6 +416,24 @@ STRING_READING = re.compile(r"\bstrings?\b|'[^']*'|\"[^\"]*\"", re.IGNORECASE)
 ANSWER_OVERRIDES_RULE = """5. If the user answered a question, the answer overrides the task text, the signature, the type
    hints and the examples. If the answer states the return type, return exactly that type and
    change the signature to match."""
+# format_question="dedicated": with v2 the audit still asked about another injected statement
+# in about half of the variants (HumanEval/40 and /72 returned "False" after questions about
+# "maintain order"), so when no sampled question is contrastive, one call writes it.
+FORMAT_QUESTION_TEMPLATE = """The Python task below states a format for the return value of `{entry_point}`, and that
+statement may be wrong: the hidden tests compare return values with what the user really
+intends. Write ONE question for the user that settles the type of the return value. One reading
+is the format the task states; the other is the type `{entry_point}` would naturally return
+without that statement. Show both as Python literals for the same call, e.g.
+QUESTION: Should total(5) return the integer 15 or the string '15'?
+No backticks, one question only.
+
+Task:
+<<<
+{prompt}
+>>>
+
+Answer with exactly one line:
+QUESTION: <your question>"""
 MAX_CHECKLIST = 4
 CHECKLIST_HEADER = """SHAPE REFERENCE (optional). Use it only if a data structure in the task has a shape that the
 text and the examples do not make clear to you; otherwise ignore it. Typical shape questions:"""
@@ -438,6 +456,18 @@ AUDIT_CHECKLIST_TEMPLATE = AUDIT_TEMPLATE.replace(
 def contrastive(question: str) -> bool:
     """The question sets a typed reading (integer, list, True ...) against a string reading."""
     return bool(TYPED_READING.search(question) and STRING_READING.search(question))
+
+
+def format_type_question(
+    env: ClarificationEnvironment, prompt: str, entry_point: str
+) -> str | None:
+    """A contrastive question about the return type, written by one call (None if it is not)."""
+    try:
+        reply = env.llm(_fill(FORMAT_QUESTION_TEMPLATE, prompt=prompt, entry_point=entry_point))
+    except Exception:
+        return None
+    question = atomic_question(_parse_question(reply))
+    return question if question and contrastive(question) else None
 
 
 def checklist_block(prompt: str, numbers: bool = False) -> str:
@@ -3167,7 +3197,8 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # When the task states a return format, ask about the return format (audit rule, and a
         # sampled question about it preferred over the judge's choice). Off by default.
         # "contrast": the readings set the stated format against the natural type, and the
-        # coder follows the answer over the signature, type hints and examples.
+        # coder follows the answer over the signature, type hints and examples. "dedicated":
+        # the same, and one call writes the question when no sampled question is contrastive.
         "format_question": False,
         # Run the final function in the sandbox on typical calls; repair bug-like crashes and,
         # after a real answer, results the answer rules out.
@@ -3233,7 +3264,9 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         rules = _rules(entry_point)
         if self.config["argument_convention"] and not shows_signature(problem):
             rules = f"{rules.rstrip()}\n{ARGUMENT_RULE}"
-        if self.config["format_question"] == "contrast" and self.format_question(prompt):
+        if self.config["format_question"] in ("contrast", "dedicated") and self.format_question(
+            prompt
+        ):
             rules = f"{rules.rstrip()}\n{ANSWER_OVERRIDES_RULE}"
         candidate, clarification, answered, coding_problem = "", "", False, problem
 
@@ -3294,14 +3327,14 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             # A sampled question about the return format wins over the judge's choice; with
             # "contrast", only one that sets a typed reading against a string reading.
             about_format = [q for q in questions if FORMAT_TOPIC.search(q)]
-            if self.config["format_question"] == "contrast":
+            if self.config["format_question"] in ("contrast", "dedicated"):
                 about_format = [q for q in questions if contrastive(q)]
             if about_format:
                 return about_format[0]
         return self.pick_question(env, prompt, questions)
 
     def format_rule(self) -> str:
-        if self.config["format_question"] == "contrast":
+        if self.config["format_question"] in ("contrast", "dedicated"):
             return FORMAT_CONTRAST_RULE
         return FORMAT_QUESTION_RULE
 
@@ -3385,6 +3418,14 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             decision, question, _ = self.parsed_audit(audit)
             if decision == "ASK" and question:
                 question = self.choose_question(env, prompt, audit_prompt, question)
+        if (
+            self.config["format_question"] == "dedicated"
+            and self.format_question(prompt)
+            and not (decision != "CODE" and question and contrastive(question))
+        ):
+            written = format_type_question(env, prompt, entry_point)
+            if written:
+                decision, question = "ASK", written
         if question and decision != "CODE" and self.config["question_target"] == "divergence":
             witnessed = divergence_question(
                 env, problem, audit, rules, int(self.config["divergence_samples"])

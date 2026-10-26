@@ -604,6 +604,21 @@ class FormatContrastTest(unittest.TestCase):
         self.assertIn("the type the function would naturally", env.prompts[0])
         self.assertIn("the answer overrides the task text", env.prompts[1])
 
+    def test_dedicated_call_writes_the_question(self):
+        loops = "Should total avoid loops entirely, including comprehensions?"
+        code = "```python\ndef total(n):\n    return n * (n + 1) // 2\n```\n"
+        env = _FakeEnv([ask(loops), f"QUESTION: {self.CONTRAST}", code], answer="The integer.")
+        _algo(format_question="dedicated", checklist=True).run(env, self.TASK)
+        self.assertEqual(env.questions, [self.CONTRAST])
+        self.assertIn("settles the type of the return value", env.prompts[1])
+
+    def test_dedicated_keeps_a_contrastive_audit_question(self):
+        code = "```python\ndef total(n):\n    return n * (n + 1) // 2\n```\n"
+        env = _FakeEnv([ask(self.CONTRAST), code], answer="The integer.")
+        _algo(format_question="dedicated", checklist=True).run(env, self.TASK)
+        self.assertEqual(env.questions, [self.CONTRAST])
+        self.assertEqual(len(env.prompts), 2)  # no dedicated call
+
     def test_untriggered_task_unchanged(self):
         env = _FakeEnv([CODE_AUDIT])
         _algo(format_question="contrast").run(env, TASK)

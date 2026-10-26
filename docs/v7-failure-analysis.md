@@ -546,3 +546,23 @@ HumanEval/73 and /115 pass in both. The limit: the audit still asks about anothe
 statement in about half of the variants (HumanEval/40 and /72 return `"False"` after questions
 about "maintain order" and "1 or the sum"), and the preference can only choose among the sampled
 questions.
+
+### `format_question="dedicated"` (v3, off by default)
+
+Everything of v2, plus: when the trigger fires and no sampled question is contrastive (or the
+audit decided to code), one call (`FORMAT_QUESTION_TEMPLATE`, `format_type_question`) writes the
+question about the return type, kept only if it is contrastive. Same 19 variants:
+
+| Run | Passed / 19 | Contrastive questions | Answer "type, not a string" | Cost/task |
+|---|---|---|---|---|
+| v3 r1 / r2 | **7 / 7** | 19 / 19 | 7 / 5 | $0.0043 / $0.0048 |
+| v2 r1 / r2 | 5 / 5 | 12 / 15 | 3 / 2 | $0.0052 / $0.0055 |
+| v1 r1 / r2 | 3 / 6 | 11 / 10 | 2 / 2 | $0.0055 / $0.0056 |
+| control, six runs | 5, 1, 3, 3, 3, 4 (mean 3.2) | 8-10 | 1 | ~$0.0050 |
+
+Both v3 runs are above the best of six controls: +3.8 of 19. HumanEval/36, /60, /66, /73 and /115
+pass in both. The remaining failures mostly have another hidden requirement (HumanEval/98 and
+/131 now get the type right and fail on the logic; /57 and /145 have 4-5 requirements). On full
+val the trigger fires on ~29 variants per run, so the expected gain is +3-4 tasks per run. Open
+risk: HumanEval/65, whose original task does state "return the result as a string" (9 val
+variants; the dataset loader kept one).

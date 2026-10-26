@@ -337,6 +337,9 @@ Every entry: what changed, why, which script/run measured it, before → after.
 - `format_question="contrast"` (v2: contrastive readings, the answer overrides hints and
   examples): 5, 5 of 19 vs. control mean 3.2 and v1 4.5; HumanEval/60 now passes, but the audit
   still asks about another injected statement in about half of the variants.
+- `format_question="dedicated"` (v3: plus one call that writes the contrastive question when no
+  sampled one is): 7, 7 of 19, above all six controls (mean 3.2); the user answers "the
+  integer, not the string" 5-7 times per run vs. 1. Expected +3-4 tasks per val run.
 
 ## Repo layout cheat-sheet
 
