@@ -332,8 +332,11 @@ Every entry: what changed, why, which script/run measured it, before → after.
   of 19 vs. control 5, 1 (earlier 3-4). The simulated user knows the right format (hidden
   requirements); our question presupposed the injected one (HumanEval/60: '15' or '12345'),
   and the coder overrode a correct answer when hints, doctests and text all said the opposite
-  (HumanEval/36). Corrects the oracle claim of `d6ccf5b`. Example markers ("such as", "e.g.") do not hurt: answers
-  with one pass 81.7% vs. 74.4%.
+  (HumanEval/36). Corrects the oracle claim of `d6ccf5b`. Example markers ("such as", "e.g.")
+  do not hurt: answers with one pass 81.7% vs. 74.4%.
+- `format_question="contrast"` (v2: contrastive readings, the answer overrides hints and
+  examples): 5, 5 of 19 vs. control mean 3.2 and v1 4.5; HumanEval/60 now passes, but the audit
+  still asks about another injected statement in about half of the variants.
 
 ## Repo layout cheat-sheet
 
