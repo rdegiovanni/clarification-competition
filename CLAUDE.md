@@ -350,6 +350,8 @@ Every entry: what changed, why, which script/run measured it, before → after.
   code, 545 vs. 553 (v7 r1 and r2 differ by 17 there).
 - Second run: TDS 0.7144, 570/768 (best so far); trigger variants 14/29. Mean of two 564, TDS
   0.7070 vs. v7 + reorder 561 / 0.7033 and v7 559.5 / 0.7007. This is the submission candidate.
+- Third run: TDS 0.7070, 564/768 (HumanEval 287, best of any run); trigger variants 11/29. Three
+  runs: mean 564, TDS 0.7070 (0.6995-0.7144).
 
 ## Repo layout cheat-sheet
 

@@ -612,3 +612,9 @@ $0.0035/task, the best val run so far.
 The +5 on the trigger variants repeats (13, 14 vs. 7-9 in four runs); the other 739 stay within
 the v7 family's range. Candidate for the submission: v7 + `reorder_arguments` +
 `format_question="dedicated"`.
+
+Third run (`candidate-val-r3`): TDS 0.7070, 564/768 (MBPP 277, HumanEval 287, the best
+HumanEval of any run, Pinpoint's 282-286 included), nDCG 0.860, $0.0035/task; trigger variants
+11/29, other 739 553. Three runs: 558 / 570 / 564 (mean 564), TDS 0.6995 / 0.7144 / 0.7070 (mean
+0.7070), trigger variants 13 / 14 / 11 vs. 7-9 before v3. All three above the public leader's
+0.6697.
