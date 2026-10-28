@@ -618,3 +618,27 @@ HumanEval of any run, Pinpoint's 282-286 included), nDCG 0.860, $0.0035/task; tr
 11/29, other 739 553. Three runs: 558 / 570 / 564 (mean 564), TDS 0.6995 / 0.7144 / 0.7070 (mean
 0.7070), trigger variants 13 / 14 / 11 vs. 7-9 before v3. All three above the public leader's
 0.6697.
+
+## Update 2026-10-28: LAASeR_Evolution and LAASeR_Contrastive_Specs on smoke-70
+
+The two algorithms added in `44691c0` (both classes are named `LAASeR_Evolution`; the loader
+works per file, but a submission needs distinct names). Evolution analyses the prompt, fixes it
+or asks one question and rewrites it with the answer, then codes once. Contrastive_Specs adds a
+loop that formalizes the prompt and the generated code and fixes the prompt until the two
+specifications are judged equivalent. Both loops are bounded only by the budget and the
+300 s timeout. smoke-70 (val, seed 42), one run each:
+
+| Run | Passed | TDS | nDCG | MBPP | HumanEval | Cost/task |
+|---|---|---|---|---|---|---|
+| `LAASeR_Evolution` | 26/70 | 0.357 | 0.757 | 12/39 | 14/31 | $0.0017 |
+| `LAASeR_Contrastive_Specs` | 27/70 | 0.372 | 0.743 | 12/39 | 15/31 | $0.0025 |
+| v7 + reorder | 50/70 | 0.687 | 0.843 | 24/39 | 26/31 | $0.0037 |
+
+No crashes or empty results (the "Exception" lines in the logs are prompt text, an
+`Exsures(ValueError, ...)` contract rule). The questions are as good as v7's (QUALITY=3 in
+52-53 of 70); the code is not: wrong value 23 vs. 12, extra or missing arguments 13 vs. 4.
+Examples on tasks v7 passes: HumanEval/22 keeps `True`/`False` as integers, HumanEval/6
+returns `[0]` for the empty string, HumanEval/115 and /86 miss a correct answer. v7 checks and
+repairs the code after the answer (coding rules, sandbox calls, crash repair, candidates
+compared by execution); these code once. The gap (24 tasks) does not justify a val run; the
+prompt evolution idea would be better tested as a flag inside v7.

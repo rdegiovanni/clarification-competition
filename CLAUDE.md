@@ -353,6 +353,12 @@ Every entry: what changed, why, which script/run measured it, before → after.
 - Third run: TDS 0.7070, 564/768 (HumanEval 287, best of any run); trigger variants 11/29. Three
   runs: mean 564, TDS 0.7070 (0.6995-0.7144).
 
+### 2026-10-28 — LAASeR_Evolution / LAASeR_Contrastive_Specs on smoke-70: TDS 0.357 / 0.372
+
+- 26 and 27 of 70 vs. v7 + reorder 50 (0.687). Questions as good as v7's (QUALITY=3 in 52-53);
+  the code fails (wrong value 23 vs. 12) because it is generated once, without v7's coding rules,
+  sandbox checks and repairs. No val run; details in `docs/v7-failure-analysis.md`.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for
