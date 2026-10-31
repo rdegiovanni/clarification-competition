@@ -642,3 +642,36 @@ returns `[0]` for the empty string, HumanEval/115 and /86 miss a correct answer.
 repairs the code after the answer (coding rules, sandbox calls, crash repair, candidates
 compared by execution); these code once. The gap (24 tasks) does not justify a val run; the
 prompt evolution idea would be better tested as a flag inside v7.
+
+## Update 2026-10-31: candidate selection headroom (offline, no gain)
+
+Question: v7 writes three implementations after the answer and keeps one (`choose_candidate`:
+fewest problems on the probe calls, then the shared behaviour, then the earliest). Wrong value
+is 61% of the failures; how many would a better selector recover?
+
+`scripts/candidate_dump.py` is v7 with the same config (here the candidate's flags,
+`--reorder_arguments True --format_question dedicated`) that also records the candidates and
+the chosen index; `scripts/candidate_headroom.py` scores every candidate position with the
+official tests (no LLM call). One val run (`cdump-val-r1`), which is also the candidate's fourth
+val run: TDS 0.6998, 560/768, nDCG 0.839.
+
+On the 765 tasks with candidates recorded:
+
+| Code scored | Passed |
+|---|---|
+| Returned (v7) | 558 |
+| Perfect selector (any candidate, or the returned code, passes) | 572 (+14) |
+| Always candidate 0 / 1 / 2 | 543 / 549 / 542 |
+| Majority of the three | 544 |
+
+- The candidates agree: all three pass in 526 tasks, all three fail in 201; only 38 are split.
+  The failures come from how the task is understood, not from sampling the code.
+- The selector already does well on the split tasks: with 2 of 3 passing the returned code
+  passes 15/18; with 1 of 3, 9/20 (chance would be about 7).
+- The realistic gain is the 3 lost tasks with 2 of 3 passing; the other 11 need the single
+  passing candidate picked against the other two with no signal. Below one run's noise (±10).
+- The repair changed the code in 28 tasks, won 8 that no candidate passed and lost none.
+
+Conclusion: selection is not the bottleneck. Candidate four val runs: 558 / 570 / 564 / 560
+(mean 563), TDS 0.6995 / 0.7144 / 0.7070 / 0.6998 (mean 0.7052). Summary and the 14 lost
+tasks: `results/candidates/cdump-val-r1/`.

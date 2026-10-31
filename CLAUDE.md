@@ -359,6 +359,15 @@ Every entry: what changed, why, which script/run measured it, before → after.
   the code fails (wrong value 23 vs. 12) because it is generated once, without v7's coding rules,
   sandbox checks and repairs. No val run; details in `docs/v7-failure-analysis.md`.
 
+### 2026-10-31 — candidate selection headroom: +14 at most, about +3 realistic
+
+- `scripts/candidate_dump.py` (v7 that records its three candidates) on val with the
+  candidate's flags, scored per candidate by `scripts/candidate_headroom.py`: returned code
+  558/765, a perfect selector 572, the three positions 543 / 549 / 542. All three agree in 727
+  tasks; with 2 of 3 passing the returned code passes 15/18. Repair: +8, -0. No change made.
+- The same run is the candidate's fourth val run: TDS 0.6998, 560/768; four runs mean 563,
+  TDS 0.7052. Details: `docs/v7-failure-analysis.md`, update of 2026-10-31.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for

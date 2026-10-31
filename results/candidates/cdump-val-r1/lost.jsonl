@@ -1,0 +1,14 @@
+{"task_id": "HumanEval/36", "chosen": 0, "repaired": false, "cands": [false, true, true]}
+{"task_id": "HumanEval/65", "chosen": 0, "repaired": false, "cands": [false, true, true]}
+{"task_id": "HumanEval/86", "chosen": 0, "repaired": false, "cands": [false, true, true]}
+{"task_id": "HumanEval/115", "chosen": 0, "repaired": false, "cands": [false, false, true]}
+{"task_id": "HumanEval/131", "chosen": 0, "repaired": false, "cands": [false, false, true]}
+{"task_id": "HumanEval/6", "chosen": 0, "repaired": false, "cands": [false, true, false]}
+{"task_id": "HumanEval/115", "chosen": 0, "repaired": false, "cands": [false, false, true]}
+{"task_id": "HumanEval/86", "chosen": 0, "repaired": false, "cands": [false, true, false]}
+{"task_id": "HumanEval/120", "chosen": 0, "repaired": false, "cands": [false, true, false]}
+{"task_id": "HumanEval/145", "chosen": 0, "repaired": false, "cands": [false, true, false]}
+{"task_id": "Mbpp/792", "chosen": 0, "repaired": false, "cands": [false, true, false]}
+{"task_id": "Mbpp/167", "chosen": 1, "repaired": false, "cands": [true, false, false]}
+{"task_id": "Mbpp/883", "chosen": 0, "repaired": false, "cands": [false, true, false]}
+{"task_id": "Mbpp/907", "chosen": 0, "repaired": false, "cands": [false, false, true]}

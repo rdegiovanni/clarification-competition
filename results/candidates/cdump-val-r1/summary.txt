@@ -1,0 +1,19 @@
+
+
+
+  ... of which repaired: 0
+any candidate passes: 572
+candidate 0 passes: 543
+candidate 1 passes: 549
+candidate 2 passes: 542
+majority of candidates pass: 544
+not recorded: 3
+passing candidates 0/3: 201
+passing candidates 1/3: 20
+passing candidates 2/3: 18
+passing candidates 3/3: 526
+recorded: 765
+repaired (returned != chosen): 28
+returned fails, a candidate passes: 14
+returned passes: 558
+returned passes, no candidate does (repair won): 8
