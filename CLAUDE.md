@@ -368,6 +368,12 @@ Every entry: what changed, why, which script/run measured it, before → after.
 - The same run is the candidate's fourth val run: TDS 0.6998, 560/768; four runs mean 563,
   TDS 0.7052. Details: `docs/v7-failure-analysis.md`, update of 2026-10-31.
 
+### 2026-11-01 — smoke-70 rerun (`hybrid-s70-r19`): TDS 0.6333, 46/70
+
+- `laaser_pinpoint_smt_3.py` on smoke-70 (MBPP 20/39, HumanEval 26/31) vs. earlier v7-family
+  smoke runs 45-51 (previous hybrid 48, v7 + reorder 50): within one smoke run's ±3 noise, no
+  evidence either way. The failing unit test is in `test_laaser_pinpoint_smt.py` (the older file).
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for
