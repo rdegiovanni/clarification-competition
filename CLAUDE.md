@@ -374,6 +374,22 @@ Every entry: what changed, why, which script/run measured it, before → after.
   smoke runs 45-51 (previous hybrid 48, v7 + reorder 50): within one smoke run's ±3 noise, no
   evidence either way. The failing unit test is in `test_laaser_pinpoint_smt.py` (the older file).
 
+### 2026-11-04 — contract question: val TDS 0.7396, 592/768; call adapter +7 offline
+
+- **`contract_question`** (v7, off by default): the one question states the contract of a draft
+  written without clarification (arguments, return type and format, rule, one example call)
+  and asks the user to correct it. Val (`contract-val-r1`, with the candidate's flags): TDS
+  0.7396, 592/768 (MBPP 304, HumanEval 288), nDCG 0.8545, $0.0026/task vs. the candidate's four
+  runs 558-570 (mean 563, TDS 0.7052): +29. Corrects the 2026-10-26 finding: the one-turn
+  ceiling came from our one-point questions. Since the run, the contract wins over the format
+  question, and `contract_always` asks it also when the audit would code.
+- **`call_adapter`** (v7, off by default; upstream issue #46: allowed but discouraged): offline
+  on `candidate-val-r3`'s code 564 -> 571, nothing lost.
+- **`LAASeR_PinpointChecks`** (new file, subclass of v7): stated examples and answer-settled
+  calls become sandbox checks that select and repair the implementation; `preclean` deletes one
+  contradictory sentence (pure deletions only). Val runs in progress. Details:
+  `docs/v7-failure-analysis.md`, update of 2026-11-04.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for

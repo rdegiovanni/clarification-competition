@@ -5,6 +5,13 @@ File analysed: `clarify/algorithms/laaser_pinpoint_smt_3.py` (v7: `question_samp
 Smoke set: `--smoke-source val --smoke-size 70 --smoke-seed 42`, `openai/gpt-4.1-mini`,
 temperature 0.7.
 
+> [!WARNING]
+> **Correction (2026-11-04): the "one-turn ceiling" below was wrong.** A question that states
+> the contract of a draft (arguments, return type and format, rule, one example call) and asks
+> the user to correct it passed 592/768 on val vs. the candidate's 558-570: one answer can
+> correct several hidden requirements, including injected statements. The ceiling came from our
+> one-point questions, not from the benchmark. See "Update 2026-11-04" at the end of this file.
+
 > [!IMPORTANT]
 > **Key finding (2026-10-26): the remaining failures are mostly not fixable by better
 > formalization.** Per val run (~210 failures, mean of four runs):
@@ -675,3 +682,71 @@ On the 765 tasks with candidates recorded:
 Conclusion: selection is not the bottleneck. Candidate four val runs: 558 / 570 / 564 / 560
 (mean 563), TDS 0.6995 / 0.7144 / 0.7070 / 0.6998 (mean 0.7052). Summary and the 14 lost
 tasks: `results/candidates/cdump-val-r1/`.
+
+## Update 2026-11-04: contract question, call adapter, execution checks
+
+### `contract_question` (v7, off by default): one question that lets the user correct a draft
+
+When the audit asks, one call writes a draft without clarification and a second writes the
+question (`CONTRACT_TEMPLATE`): it states what the draft assumes on ordinary inputs (the
+arguments with their types and order, the exact return type and format, the rule, one small
+example call with its result) and asks whether that is right or whether it should instead do
+the most plausible alternative. When the task text and one of its stated examples disagree, it
+asks only which of the two is intended. The three sampled questions and the judge are skipped.
+
+The simulated user knows every hidden requirement, so it compares the stated contract with them
+and corrects every part that is wrong in one answer: the core rule, the argument order, the
+return format and the injected statements the draft obeyed. A question that offers two readings
+chosen in advance ("A or B?") settles one point, and nothing when the hidden requirement is
+neither reading.
+
+| Run (val, `openai/gpt-4.1-mini`) | TDS | Passed | MBPP | HumanEval | nDCG | $/task |
+|---|---|---|---|---|---|---|
+| candidate (4 runs) | 0.6995-0.7144 (mean 0.7052) | 558-570 (mean 563) | 285-293 | 268-287 | ~0.86 | 0.0035 |
+| candidate + `contract_question` (`contract-val-r1`) | **0.7396** | **592** | 304 | 288 | 0.8545 | 0.0026 |
+
++29 over the candidate's mean, about three times one run's noise. By perturbation family
+(passed, contract run vs. the candidate's four-run mean): `akli` 219 vs. 209.0 (269 variants),
+`larbi` 186 vs. 172.0 (268), unperturbed 74 vs. 71.8 (90), `wu` 111 vs. 109.8 (141). Questions
+are longer (255 characters on average vs. 180), and 84 of 742 answers are rated QUALITY=1 (the
+judge sees a bundle), hence the small nDCG drop; nDCG only breaks ties.
+
+In this run the format question of `format_question="dedicated"` still replaced the contract on
+the tasks that state a return format. Since then the contract wins over it (the contract states
+the return format too), and `contract_always` asks the contract question also when the audit
+would code without asking. Smoke-70 (`contract-s70-r1`, first version) passed 48/70, within the
+45-51 of earlier v7 runs: smoke-70 cannot show a change of this size.
+
+### `call_adapter` (v7, off by default): calls that do not bind to the signature
+
+The returned code ends by wrapping the entry point (`CALL_ADAPTER`): a call that binds to its
+signature runs exactly as before; one that does not is retried with the first alternative that
+binds and runs (drop a length passed after the collection it measures, drop extra trailing
+arguments, pack into one list, unpack one list, fill a missing length parameter, the last only
+when the parameter's name says it is a length). Upstream issue #46: the organizers consider
+such a generic wrapper allowed but discouraged.
+
+Offline on the code of `candidate-val-r3` (`scripts/adapter_whatif.py`, official tests, no LLM
+call): 564 -> 571, +7, nothing lost (Mbpp/371 six variants, Mbpp/550 one). 13 argument errors
+remain: our functions declare a parameter the tests never pass (`k`, `target`, `power`).
+
+### `LAASeR_PinpointChecks` (`clarify/algorithms/laaser_pinpoint_checks.py`)
+
+A subclass of v7 with the candidate's flags on by default and three layers, each behind a flag:
+
+1. `example_checks`: the examples the task states (doctests, `f(x) == y`) become checks.
+2. `answer_checks`: after the answer, one call says which stated examples the answer or the
+   task text contradicts (dropped) and which concrete calls the answer settles (added).
+3. `preclean`: before anything else, one call deletes a sentence that cannot hold together with
+   the rest of the task (an impossible limit, numbers demanded as strings, a closing clause
+   that cancels the main statement). It is kept only if it is a pure deletion that leaves the
+   signature, every example and the function name untouched; the user still sees the original.
+
+With checks, v7's implementation and `finals` (2) more written with the answer run in the
+sandbox; a check no implementation passes is dropped (the answer overrides it, or the
+perturbation corrupted it); the one passing most checks is kept (ties: v7's) and repaired up to
+`check_repairs` (2) times against the checks it fails, a repair kept only if it passes more.
+It imports v7, so it is dev tooling until folded into one submission file. Val runs
+`checks-val-r1` (the three layers) and `combo-val-r1` (plus `contract_question`,
+`contract_always`, `call_adapter`) are running; results in the next update.
+

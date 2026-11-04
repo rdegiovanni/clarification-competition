@@ -470,6 +470,69 @@ def format_type_question(
     return question if question and contrastive(question) else None
 
 
+# With contract_question, the one question states the contract of a draft written without
+# clarification (arguments, return type and format, the rule, one example call with its result)
+# and asks the user to correct it: the simulated user knows every hidden requirement, so one
+# answer can correct several of them, while a question about one point settles only that one.
+# 64% of our val failures were tasks with 2+ hidden requirements (1 requirement: 22/23 passed on
+# smoke-70, 2+: 10/24).
+CONTRACT_TEMPLATE = """You wrote this draft of `{entry_point}` for the Python task below, before asking the user
+anything. Hidden tests will call `{entry_point}` and compare its return values with what the user
+really intends; the task text may be vague, incomplete or contradictory.
+
+Task:
+<<<
+{prompt}
+>>>
+
+Draft:
+```python
+{draft}
+```
+
+Open points you found in the task:
+{defects}
+
+You may ask the user ONE question. Use it to let the user correct the draft where it is most likely
+wrong. If the task text and one of its examples disagree, ask only about that example: quote the
+call with its stated result, give the result the text implies for the same call, and ask which
+one is intended. Otherwise state concretely what the draft assumes on ordinary inputs: the
+arguments of {entry_point} (types and shape), what it returns (exact type and format) and the rule
+it computes, with one small example call and its result. Then ask whether that is right, or
+whether it should instead <the most plausible alternative for the open point you are least sure
+about>. Start with the part the task leaves most open (the result format, the arguments or the
+core rule); mention empty, zero or invalid inputs only if nothing else is open. Never ask for code
+or tests. Plain text on one line, no backticks.
+
+Answer with exactly one line:
+QUESTION: <your question>"""
+
+
+def contract_question(
+    env: ClarificationEnvironment, prompt: str, entry_point: str, audit: str, rules: str
+) -> str | None:
+    """A question stating a draft's contract for the user to correct (None on any failure)."""
+    try:
+        response = env.llm(_fill(CODE_TEMPLATE, prompt=prompt, clarification="", rules=rules))
+        draft = _check_code(response, entry_point)[0]
+        if not draft:
+            return None
+        defects = "\n".join(f"- {line}" for line in audit_defects(audit)) or "- none listed"
+        reply = env.llm(
+            _fill(
+                CONTRACT_TEMPLATE,
+                prompt=prompt,
+                entry_point=entry_point,
+                draft=draft,
+                defects=defects,
+            )
+        )
+    except Exception:
+        return None
+    question = _parse_question(reply)
+    return question.replace("`", "") if question else None
+
+
 def checklist_block(prompt: str, numbers: bool = False) -> str:
     """The shape reference for the data structures the task mentions ("" if none); with
     numbers=True, first the digits-of-negative-numbers entry if the task mentions digits."""
@@ -3033,6 +3096,92 @@ def tolerate_extra_args(code: str, entry_point: str) -> str:
     return code
 
 
+# With call_adapter, the returned code ends by wrapping the entry point: a call that binds to
+# its signature runs exactly as before; one that does not (MBPP prompts show no signature, so
+# the guessed parameters can differ from the caller's) is retried with the first alternative
+# that binds and runs: without a length passed after the collection it measures (f(arr, n, k)
+# for f(arr, k)), without extra trailing arguments, packed into one list, unpacked from one
+# list, or with a missing length parameter filled in. The length is filled only for a last
+# parameter whose name says it is one (LENGTH_NAMES), never for any missing argument. The
+# organizers consider such a generic wrapper allowed but discouraged (upstream issue #46).
+LENGTH_NAMES = frozenset("n length size len_ num_elements count_elements".split())
+CALL_ADAPTER = """
+
+def laaser_adapt_calls(function, length_last):
+    import copy
+    import inspect
+
+    try:
+        signature = inspect.signature(function)
+    except (TypeError, ValueError):
+        return function
+    count = len(signature.parameters)
+
+    def binds(args):
+        try:
+            signature.bind(*args)
+            return True
+        except TypeError:
+            return False
+
+    def sized(value):
+        return isinstance(value, (list, tuple, str, dict, set))
+
+    def alternatives(args):
+        lengths = [
+            i for i in range(1, len(args))
+            if type(args[i]) is int and sized(args[i - 1]) and args[i] == len(args[i - 1])
+        ]
+        if lengths:
+            yield tuple(a for i, a in enumerate(args) if i not in lengths)
+        if len(args) > count:
+            yield tuple(args[:count])
+        if count == 1 and len(args) > 1:
+            yield (list(args),)
+        if len(args) == 1 and isinstance(args[0], (list, tuple)) and len(args[0]) == count > 1:
+            yield tuple(args[0])
+        if length_last and len(args) == count - 1:
+            measured = next((a for a in args if sized(a)), None)
+            if measured is not None:
+                yield (*args, len(measured))
+
+    def adapted(*args, **kwargs):
+        if kwargs or binds(args):
+            return function(*args, **kwargs)
+        for other in alternatives(args):
+            if binds(other):
+                try:
+                    return function(*copy.deepcopy(other))
+                except Exception:
+                    continue
+        return function(*args)
+
+    return adapted
+
+
+{entry} = laaser_adapt_calls({entry}, {length_last})
+"""
+
+
+def call_adapter(code: str, entry_point: str) -> str:
+    """The code with CALL_ADAPTER appended for its entry point; unchanged when the entry point
+    is not a plain module-level function (it takes *args, **kwargs or keyword-only or
+    positional-only parameters)."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code
+    definitions = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == entry_point]
+    if not definitions:
+        return code
+    args = definitions[-1].args  # the last one is the one Python binds to the name
+    if args.vararg or args.kwarg or args.kwonlyargs or args.posonlyargs:
+        return code
+    length_last = bool(args.args) and args.args[-1].arg.lower() in LENGTH_NAMES
+    adapter = _fill(CALL_ADAPTER, entry=entry_point, length_last=str(length_last))
+    return code.rstrip() + "\n" + adapter
+
+
 # On the full validation split v7 beat Pinpoint on MBPP (289, 285 vs. 263-282 of 418) and lost
 # on HumanEval (278, 267 vs. 282-286 of 350): its extra layers help when the task is prose
 # and hurt when it already shows the stub and docstring. With stub_profile="pinpoint" a task
@@ -3210,6 +3359,17 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         # "submissions that target the oracle rather than the task", and this edit exists only
         # because of how the hidden tests call the function. Ask the organizers before using it.
         "tolerate_extra_args": False,
+        # Wrap the returned entry point so that a call that does not bind to its signature is
+        # retried with generic alternatives (CALL_ADAPTER). Off by default; upstream issue #46:
+        # allowed but discouraged.
+        "call_adapter": False,
+        # When the audit asks, replace its question by one that states the contract of a draft
+        # written without clarification and asks the user to correct it (CONTRACT_TEMPLATE);
+        # the sampled questions and the judge are then skipped, and so is the format question
+        # of format_question="dedicated" (the contract states the return format too).
+        "contract_question": False,
+        # With contract_question, ask the contract question also when the audit would code.
+        "contract_always": False,
     }
 
     def pinpoint_run(self, env: ClarificationEnvironment, problem: dict[str, Any]) -> str:
@@ -3306,6 +3466,8 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             candidate = collection_first(candidate, entry_point)
         if self.config["tolerate_extra_args"] and candidate:
             candidate = tolerate_extra_args(candidate, entry_point)
+        if self.config["call_adapter"] and candidate:
+            candidate = call_adapter(candidate, entry_point)
         return candidate
 
     def choose_question(
@@ -3411,15 +3573,22 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             checklist=checklist_block(prompt, self.config["number_reference"])
             + (self.format_rule() if self.format_question(prompt) else ""),
         )
+        contract = None
         if int(self.config["decision_votes"]) > 1:
             audit, decision, question = self.voted_audit(env, prompt, audit_prompt)
         else:
             audit = env.llm(audit_prompt)
             decision, question, _ = self.parsed_audit(audit)
-            if decision == "ASK" and question:
+            asks = decision == "ASK" and bool(question)
+            if self.config["contract_question"] and (asks or self.config["contract_always"]):
+                contract = contract_question(env, prompt, entry_point, audit, rules)
+            if contract:
+                decision, question = "ASK", contract
+            elif decision == "ASK" and question:
                 question = self.choose_question(env, prompt, audit_prompt, question)
         if (
             self.config["format_question"] == "dedicated"
+            and not contract
             and self.format_question(prompt)
             and not (decision != "CODE" and question and contrastive(question))
         ):

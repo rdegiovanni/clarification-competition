@@ -17,6 +17,7 @@ import unittest
 from clarify.algorithms import laaser_pinpoint_smt_3
 from clarify.algorithms.laaser_pinpoint_smt_3 import (
     LAASeR_PinpointSMT,
+    call_adapter,
     collection_first,
     consensus_question,
     divergent_call,
@@ -624,6 +625,81 @@ class FormatContrastTest(unittest.TestCase):
         _algo(format_question="contrast").run(env, TASK)
         self.assertNotIn("RETURN FORMAT", env.prompts[0])
         self.assertNotIn("the answer overrides", env.prompts[0])
+
+
+class CallAdapterTest(unittest.TestCase):
+    """call_adapter: calls that bind run unchanged; others get generic alternatives."""
+
+    def load(self, code, entry):
+        namespace = {}
+        exec(call_adapter(code, entry), namespace)
+        return namespace[entry]
+
+    def test_a_call_that_binds_is_unchanged(self):
+        f = self.load("def f(a, b):\n    return (a, b)\n", "f")
+        self.assertEqual(f(1, 2), (1, 2))
+
+    def test_a_length_after_its_collection_is_dropped(self):
+        f = self.load("def f(arr, k):\n    return sum(arr) + k\n", "f")
+        self.assertEqual(f([1, 2, 3], 3, 10), 16)
+
+    def test_extra_trailing_arguments_are_dropped(self):
+        f = self.load("def f(arr):\n    return max(arr)\n", "f")
+        self.assertEqual(f([2, 3, 5, 6, 9], 0, 4), 9)
+
+    def test_a_missing_length_is_filled_only_for_a_length_parameter(self):
+        f = self.load("def f(arr, n):\n    return n\n", "f")
+        self.assertEqual(f([4, 5, 6]), 3)
+        g = self.load("def g(arr, k):\n    return k\n", "g")
+        with self.assertRaises(TypeError):
+            g([4, 5, 6])
+
+    def test_recursion_still_works(self):
+        f = self.load("def f(n):\n    return 1 if n < 2 else n * f(n - 1)\n", "f")
+        self.assertEqual(f(5), 120)
+
+    def test_varargs_entry_points_are_left_alone(self):
+        code = "def f(*args):\n    return args\n"
+        self.assertEqual(call_adapter(code, "f"), code)
+
+
+CONTRACT = (
+    "QUESTION: I will assume count_greater(arr, k) takes a list of integers and an integer k and"
+    " returns the integer count of elements strictly greater than k, e.g. count_greater([1, 5, 7],"
+    " 5) returns 1. Is that right, or should elements equal to k be counted too?"
+)
+
+
+class ContractQuestionTest(unittest.TestCase):
+    def test_the_contract_question_replaces_the_sampled_ones(self):
+        env = _FakeEnv([ask(STRICT), CODE_REPLY, CONTRACT, CODE_REPLY])
+        _algo(contract_question=True, question_samples=3).run(env, TASK)
+        self.assertEqual(len(env.questions), 1)
+        self.assertTrue(env.questions[0].startswith("I will assume count_greater(arr, k)"))
+        self.assertIn("Draft:", env.prompts[2])
+        self.assertEqual(env.replies, [])  # no sampled audits, no judge
+
+    def test_without_a_contract_the_audit_question_is_kept(self):
+        env = _FakeEnv([ask(STRICT), "no code here", CODE_REPLY])
+        _algo(contract_question=True).run(env, TASK)
+        self.assertEqual(env.questions, [STRICT])
+
+    def test_contract_always_asks_when_the_audit_codes(self):
+        env = _FakeEnv([CODE_AUDIT, CODE_REPLY, CONTRACT, CODE_REPLY])
+        _algo(contract_question=True, contract_always=True).run(env, TASK)
+        self.assertEqual(len(env.questions), 1)
+        self.assertTrue(env.questions[0].startswith("I will assume"))
+
+    def test_the_contract_wins_over_the_format_question(self):
+        task = {**TASK, "prompt": TASK["prompt"] + " Return the count as a string."}
+        env = _FakeEnv([ask(STRICT), CODE_REPLY, CONTRACT, CODE_REPLY])
+        _algo(contract_question=True, format_question="dedicated").run(env, task)
+        self.assertTrue(env.questions[0].startswith("I will assume"))
+
+    def test_off_by_default(self):
+        env = _FakeEnv([ask(STRICT), CODE_REPLY])
+        _algo().run(env, TASK)
+        self.assertEqual(env.questions, [STRICT])
 
 
 if __name__ == "__main__":
