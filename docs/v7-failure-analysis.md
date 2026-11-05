@@ -784,3 +784,26 @@ It imports v7, so it is dev tooling until folded into one submission file.
   order (`ORDER_RULE`), so the user corrects a wrong order, which otherwise fails without an
   error. +6 over `cand2` (601 vs. 595), within noise, nDCG 0.894 -> 0.910.
 
+## Update 2026-11-05: the submission file `clarify/algorithms/laaser_contract.py`
+
+`LAASeR_Contract` is the `order` candidate reorganized into one self-contained file (2,990
+lines vs. 3,510 for the development file, which keeps every experiment behind a flag). Only the
+code paths the candidate uses are kept; nothing was rewritten. The module is laid out in the
+order of the pipeline, each section with a short note, and the class has one method per step:
+
+| Step | Method | What it does |
+|---|---|---|
+| 1 | `pinpoint_audit` | defects of the task, ASK / CODE, shape reference, contrastive-format rule |
+| 2 | `z3_question`, `z3_evidence` | conflicts z3 proves between statements and examples, or between two readings |
+| 3 | `contract_question` | the draft's contract for the user to correct, with the z3 evidence and argument order |
+| fallback | `choose_question`, `format_question` | when no contract can be written: sampled audits and the judge |
+| 4 | `code_with_answer`, `code_without_answer` | one question, code with the answer, checks and repairs |
+| 5 | `verify_by_execution` | probe calls, arbitration, choice among implementations |
+| 6 | `fix_signature` | collection-first order and the call adapter |
+
+Configuration: `use_solver`, `contract_drafts` (1), `contract_order`, `question_samples` (3),
+`verify`, `candidates` (3), `reorder_arguments`, `call_adapter`. `tests/test_laaser_contract.py`
+checks each step and, on scripted replies, that the file makes the same LLM calls, asks the
+same question and returns the same code as `laaser_pinpoint_smt_3.py` with the candidate's flags.
+Val run `submission-val-r1` is pending.
+

@@ -400,6 +400,14 @@ Every entry: what changed, why, which script/run measured it, before → after.
   `contract_question` + `contract_always` + `contract_evidence="solver"` + `contract_order` +
   `call_adapter`. Details: `docs/v7-failure-analysis.md`, update of 2026-11-04.
 
+### 2026-11-05 — submission file `laaser_contract.py` (`LAASeR_Contract`)
+
+- The `order` candidate reorganized into one self-contained file, one method per pipeline step
+  (`pinpoint_audit`, `z3_question`/`z3_evidence`, `contract_question`, `code_with_answer`,
+  `verify_by_execution`, `fix_signature`); no behaviour change: `tests/test_laaser_contract.py`
+  checks it against `laaser_pinpoint_smt_3.py` with the candidate's flags on scripted replies.
+  Header from PR #40 (LAASeR - LIST, MIT). Val run pending.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for
