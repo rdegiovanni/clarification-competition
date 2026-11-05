@@ -684,6 +684,44 @@ class ContractQuestionTest(unittest.TestCase):
         _algo(contract_question=True).run(env, TASK)
         self.assertEqual(env.questions, [STRICT])
 
+    def test_a_proven_conflict_reaches_the_contract_question(self):
+        proven = {"question": 'The task says "x", but the example "f(1) == 2" does not satisfy it.'}
+        original = laaser_pinpoint_smt_3.find_certificate
+        laaser_pinpoint_smt_3.find_certificate = lambda *args, **kwargs: proven
+        try:
+            env = _FakeEnv([ask(STRICT), CODE_REPLY, CONTRACT, CODE_REPLY])
+            _algo(contract_question=True, contract_evidence="solver").run(env, TASK)
+        finally:
+            laaser_pinpoint_smt_3.find_certificate = original
+        contract_prompt = next(p for p in env.prompts if "Draft:" in p)
+        self.assertIn("Proven with a solver", contract_prompt)
+        self.assertIn('the example "f(1) == 2"', contract_prompt)
+
+    def test_without_evidence_the_contract_prompt_has_no_solver_block(self):
+        env = _FakeEnv([ask(STRICT), CODE_REPLY, CONTRACT, CODE_REPLY])
+        _algo(contract_question=True).run(env, TASK)
+        self.assertNotIn("Proven with a solver", next(p for p in env.prompts if "Draft:" in p))
+
+    def test_drafts_run_before_the_contract_question(self):
+        task = {**TASK, "prompt": TASK["prompt"] + "\n>>> count_greater([1, 5, 7], 5)\n1\n"}
+        strict = "```python\ndef count_greater(arr, k):\n    return sum(x > k for x in arr)\n```"
+        probes = "CALL count_greater([2, 2, 3], 2)\nCALL count_greater([], 0)\n"
+        env = _FakeEnv([ask(STRICT), CODE_REPLY, strict, CODE_REPLY, probes, CONTRACT, CODE_REPLY])
+        _algo(contract_question=True, contract_drafts=3).run(env, task)
+        contract_prompt = next(p for p in env.prompts if "Draft:" in p)
+        self.assertIn("x > k", contract_prompt)  # the draft that satisfies the stated example
+        self.assertIn("the drafts disagree on count_greater([2, 2, 3], 2)", contract_prompt)
+        self.assertEqual(len(env.questions), 1)
+
+    def test_contract_order_only_for_tasks_without_a_signature(self):
+        env = _FakeEnv([ask(STRICT), CODE_REPLY, CONTRACT, CODE_REPLY])
+        _algo(contract_question=True, contract_order=True).run(env, TASK)
+        self.assertIn("first argument> first", next(p for p in env.prompts if "Draft:" in p))
+        stub = {**TASK, "prompt": "def count_greater(arr, k):\n    " + '"""Count > k."""'}
+        env = _FakeEnv([ask(STRICT), CODE_REPLY, CONTRACT, CODE_REPLY])
+        _algo(contract_question=True, contract_order=True).run(env, stub)
+        self.assertNotIn("first argument> first", next(p for p in env.prompts if "Draft:" in p))
+
     def test_contract_always_asks_when_the_audit_codes(self):
         env = _FakeEnv([CODE_AUDIT, CODE_REPLY, CONTRACT, CODE_REPLY])
         _algo(contract_question=True, contract_always=True).run(env, TASK)

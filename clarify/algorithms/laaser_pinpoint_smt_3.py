@@ -492,7 +492,7 @@ Draft:
 
 Open points you found in the task:
 {defects}
-
+{evidence}
 You may ask the user ONE question. Use it to let the user correct the draft where it is most likely
 wrong. If the task text and one of its examples disagree, ask only about that example: quote the
 call with its stated result, give the result the text implies for the same call, and ask which
@@ -500,7 +500,7 @@ one is intended. Otherwise state concretely what the draft assumes on ordinary i
 arguments of {entry_point} (types and shape), what it returns (exact type and format) and the rule
 it computes, with one small example call and its result. Then ask whether that is right, or
 whether it should instead <the most plausible alternative for the open point you are least sure
-about>. Start with the part the task leaves most open (the result format, the arguments or the
+about>.{order} Start with the part the task leaves most open (the result format, the arguments or the
 core rule); mention empty, zero or invalid inputs only if nothing else is open. Never ask for code
 or tests. Plain text on one line, no backticks.
 
@@ -508,15 +508,61 @@ Answer with exactly one line:
 QUESTION: <your question>"""
 
 
+# With contract_evidence="solver", the conflicts z3 proves on the task (find_certificate: a
+# statement or type hint that a stated example violates; find_interpretation_conflict: two
+# readings of an audit defect that return different values on a concrete input) are given to
+# the contract question, which then leads with the proven conflict instead of a suspected one.
+SOLVER_EVIDENCE = """
+Proven with a solver on the task text (not a guess):
+{conflicts}
+Your question must settle this conflict first (quote both sides, and the concrete call where
+they differ), then state the rest of the draft's contract.
+"""
+
+
+def solver_evidence(
+    env: ClarificationEnvironment, problem: dict[str, Any], audit: str, solver: bool
+) -> str:
+    """SOLVER_EVIDENCE for the conflicts z3 proves on the task ("" when there are none)."""
+    conflicts = []
+    certificate = find_certificate(env, problem, solver=solver)
+    if certificate is not None:
+        conflicts.append(certificate["question"])
+    else:
+        conflict = find_interpretation_conflict(env, problem, audit, None, solver)
+        if conflict is not None:
+            conflicts.append(conflict["question"])
+    if not conflicts:
+        return ""
+    lines = "\n".join(f"- {c.replace('`', '')}" for c in conflicts)
+    return _fill(SOLVER_EVIDENCE, conflicts=lines)
+
+
 def contract_question(
-    env: ClarificationEnvironment, prompt: str, entry_point: str, audit: str, rules: str
+    env: ClarificationEnvironment,
+    prompt: str,
+    entry_point: str,
+    audit: str,
+    rules: str,
+    evidence: str = "",
+    drafts: int = 1,
+    order: bool = False,
 ) -> str | None:
-    """A question stating a draft's contract for the user to correct (None on any failure)."""
+    """A question stating a draft's contract for the user to correct (None on any failure).
+    With drafts > 1, the drafts run in the sandbox first (draft_evidence): the question is
+    written about the one that satisfies most stated examples, and sees where they disagree."""
     try:
-        response = env.llm(_fill(CODE_TEMPLATE, prompt=prompt, clarification="", rules=rules))
-        draft = _check_code(response, entry_point)[0]
-        if not draft:
+        codes = []
+        for _ in range(max(1, drafts)):
+            response = env.llm(_fill(CODE_TEMPLATE, prompt=prompt, clarification="", rules=rules))
+            code = _check_code(response, entry_point)[0]
+            if code:
+                codes.append(code)
+        if not codes:
             return None
+        draft, observed = codes[0], ""
+        if len(codes) > 1:
+            draft, observed = draft_evidence(env, prompt, entry_point, codes)
         defects = "\n".join(f"- {line}" for line in audit_defects(audit)) or "- none listed"
         reply = env.llm(
             _fill(
@@ -525,12 +571,91 @@ def contract_question(
                 entry_point=entry_point,
                 draft=draft,
                 defects=defects,
+                evidence=observed + evidence,
+                order=ORDER_RULE.replace("\n", " ").rstrip()
+                if order and not re.search(r"def\s+" + re.escape(entry_point) + r"\s*\(", prompt)
+                else "",
             )
         )
     except Exception:
         return None
     question = _parse_question(reply)
     return question.replace("`", "") if question else None
+
+
+# With contract_order, a task that shows no `def` line (MBPP) gets ORDER_RULE in the contract
+# question: the hidden tests call the function positionally, so a wrong argument order fails
+# without an error, and the user corrects an order only when the question states it. In val the
+# answers fixed the order in 2-4 MBPP tasks per run.
+ORDER_RULE = """ The task shows no signature, so name the arguments in their order explicitly
+("takes <first argument> first and <second argument> second") so that the user can correct the
+order."""
+
+
+# With contract_drafts > 1, the drafts run on the examples the task states and on probe inputs
+# (PROBES_TEMPLATE, inputs only) before the question is written. A draft that violates a stated
+# example is less likely to be what the user means; where the drafts return different results
+# for the same call, the task leaves that point open. MBPP prompts state no examples, so there
+# the disagreement on the probes is the only evidence.
+DRAFT_EVIDENCE = """
+Observed by running {count} independent drafts in a sandbox (the draft above is the one that
+satisfies most stated examples):
+{lines}
+Ask about what these observations leave open: a stated example no draft satisfies may contradict
+the text (ask which is intended), and a call on which the drafts disagree is a point the task does
+not fix. Show the competing results for that call in your question.
+"""
+MAX_DISAGREEMENTS = 3
+
+
+def draft_evidence(
+    env: ClarificationEnvironment, prompt: str, entry_point: str, codes: list[str]
+) -> tuple[str, str]:
+    """(the draft to ask about, DRAFT_EVIDENCE) from one sandbox run of every draft on the
+    stated examples and on probe inputs; (codes[0], "") when nothing could be run."""
+    examples = extract_examples(prompt, entry_point)
+    probes = []
+    try:
+        response = env.llm(
+            _fill(PROBES_TEMPLATE, prompt=prompt, clarification="", entry_point=entry_point)
+        )
+        probes = [args for _, args, _ in parse_probe_calls(response, entry_point)][:MAX_PROBES]
+    except Exception:
+        pass
+    calls = [example["args"] for example in examples] + probes
+    reports = run_candidates(env, codes, entry_point, calls) if calls else None
+    if not reports:
+        return codes[0], ""
+    usable = [i for i, r in enumerate(reports) if r is not None and not r["load_error"]]
+    if not usable:
+        return codes[0], ""
+
+    def satisfies(i: int, j: int) -> bool:
+        found, value = _result(*reports[i]["results"][j])
+        return found and same_value(value, examples[j]["expected"])
+
+    scores = {i: sum(satisfies(i, j) for j in range(len(examples))) for i in usable}
+    best = max(usable, key=lambda i: (scores[i], -i))
+    lines = []
+    for j, example in enumerate(examples):
+        if not any(satisfies(i, j) for i in usable):
+            got = reports[best]["results"][j][1][:80]
+            lines.append(f"- no draft satisfies the stated example {example['quote']}; got {got}")
+    for k, args in enumerate(probes):
+        index = len(examples) + k
+        outcomes: dict[str, int] = {}
+        for i in usable:
+            kind, info = reports[i]["results"][index]
+            shown = info[:80] if kind in ("VALUE", "NONE") else f"raises {info.split(':', 1)[0]}"
+            outcomes[shown] = outcomes.get(shown, 0) + 1
+        if len(outcomes) > 1 and len(lines) < MAX_DISAGREEMENTS + len(examples):
+            call = f"{entry_point}({', '.join(repr(a) for a in args)})"
+            results = "; ".join(f"{o} ({n} draft{'s' * (n > 1)})" for o, n in outcomes.items())
+            lines.append(f"- the drafts disagree on {call}: {results}")
+    if not lines:
+        lines = ["- every draft satisfies the stated examples and they agree on every probe"]
+    observed = _fill(DRAFT_EVIDENCE, count=str(len(usable)), lines="\n".join(lines))
+    return codes[best], observed
 
 
 def checklist_block(prompt: str, numbers: bool = False) -> str:
@@ -3370,6 +3495,14 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
         "contract_question": False,
         # With contract_question, ask the contract question also when the audit would code.
         "contract_always": False,
+        # "solver": the conflicts z3 proves on the task are given to the contract question
+        # (SOLVER_EVIDENCE); "none": the contract question sees only the draft and the audit.
+        "contract_evidence": "none",
+        # Drafts written for the contract question; above 1 they run in the sandbox on the
+        # stated examples and on probe inputs first (draft_evidence).
+        "contract_drafts": 1,
+        # Ask the contract question to state the argument order when the task shows no `def`.
+        "contract_order": False,
     }
 
     def pinpoint_run(self, env: ClarificationEnvironment, problem: dict[str, Any]) -> str:
@@ -3581,7 +3714,19 @@ class LAASeR_PinpointSMT(ClarificationAlgorithmBase):
             decision, question, _ = self.parsed_audit(audit)
             asks = decision == "ASK" and bool(question)
             if self.config["contract_question"] and (asks or self.config["contract_always"]):
-                contract = contract_question(env, prompt, entry_point, audit, rules)
+                evidence = ""
+                if self.config["contract_evidence"] == "solver":
+                    evidence = solver_evidence(env, problem, audit, self.config["use_solver"])
+                contract = contract_question(
+                    env,
+                    prompt,
+                    entry_point,
+                    audit,
+                    rules,
+                    evidence,
+                    int(self.config["contract_drafts"]),
+                    bool(self.config["contract_order"]),
+                )
             if contract:
                 decision, question = "ASK", contract
             elif decision == "ASK" and question:

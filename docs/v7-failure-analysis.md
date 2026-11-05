@@ -746,7 +746,41 @@ With checks, v7's implementation and `finals` (2) more written with the answer r
 sandbox; a check no implementation passes is dropped (the answer overrides it, or the
 perturbation corrupted it); the one passing most checks is kept (ties: v7's) and repaired up to
 `check_repairs` (2) times against the checks it fails, a repair kept only if it passes more.
-It imports v7, so it is dev tooling until folded into one submission file. Val runs
-`checks-val-r1` (the three layers) and `combo-val-r1` (plus `contract_question`,
-`contract_always`, `call_adapter`) are running; results in the next update.
+It imports v7, so it is dev tooling until folded into one submission file.
+
+### Results (val, one run each, `openai/gpt-4.1-mini`)
+
+| Run | Configuration | Passed | TDS | nDCG | $/task |
+|---|---|---|---|---|---|
+| candidate (4 runs) | v7 + reorder + format dedicated | 558-570 | 0.7052 | ~0.86 | 0.0035 |
+| `checks-val-r1` | `LAASeR_PinpointChecks` (checks + preclean), no contract | 564 | 0.7047 | 0.849 | 0.0041 |
+| `contract-val-r1` | candidate + `contract_question` | 592 | 0.7396 | 0.855 | 0.0026 |
+| `combo-val-r1` | checks + contract (always, over format) + adapter | 589 | 0.7370 | 0.890 | 0.0035 |
+| `combo-z3-val-r1` | combo + `contract_evidence="solver"` | 594 | 0.7433 | 0.886 | 0.0051 |
+| `cand2-val-r1` | candidate + contract (always) + z3 evidence + adapter | 595 | 0.7445 | 0.894 | 0.0044 |
+| `order-val-r1` | `cand2` + `contract_order` | **601** | **0.7520** | **0.910** | 0.0045 |
+
+- The checks and preclean add nothing (564 alone, 589 vs. 592 with the contract) and cost more:
+  they stay out of the submission.
+- The five contract runs pass 589-601 (mean 594): about +31 over the candidate, consistent.
+  Among them the differences are within one run's noise (±10); `order` is the best and loses
+  nothing (MBPP 312, the best of any run). It is the submission candidate.
+- Argument failures (calls that do not bind): 30 in `candidate-val-r3`, 20 with the contract,
+  7 with the contract and `call_adapter`.
+
+### `contract_evidence="solver"`, `contract_drafts`, `contract_order` (v7, off by default)
+
+- `contract_evidence="solver"`: before the contract question, `find_certificate` (a statement or
+  type hint a stated example violates, proven by z3) and, failing that,
+  `find_interpretation_conflict` (two readings of an audit defect that return different values on
+  a concrete input) run on every task; a proven conflict is given to the question
+  (`SOLVER_EVIDENCE`), which must settle it first. Without z3 installed it adds nothing.
+- `contract_drafts`: above 1, the drafts run in the sandbox on the stated examples and on probe
+  inputs before the question (`draft_evidence`); the question is written about the draft that
+  satisfies most stated examples and sees the calls on which the drafts disagree. MBPP prompts
+  state no examples (0 of 420 in val; HumanEval 152 of 350), so there the disagreement is the
+  only evidence. The first val run was cut by the end of a session at 527/770; rerun pending.
+- `contract_order`: on tasks that show no `def` line, the question names the arguments in their
+  order (`ORDER_RULE`), so the user corrects a wrong order, which otherwise fails without an
+  error. +6 over `cand2` (601 vs. 595), within noise, nDCG 0.894 -> 0.910.
 

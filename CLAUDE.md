@@ -27,7 +27,7 @@ leaderboard (`docs/data/leaderboard.csv`, all on `openai/gpt-4.1-mini`):
 
 | Algorithm | TDS | nDCG | Team |
 |---|---|---|---|
-| GatedClarification | 0.6410 | 0.8987 | STIL-ETS (current leader) |
+| GatedClarification | 0.6410 | 0.8987 | — |
 | ContractFirstClarifier | 0.5973 | 0.8247 | D4vidHuang |
 | Okanagan (baseline) | 0.5917 | 0.7688 | — |
 | ClarifyGPT (baseline) | 0.5625 | 0.3818 | — |
@@ -389,6 +389,16 @@ Every entry: what changed, why, which script/run measured it, before → after.
   calls become sandbox checks that select and repair the implementation; `preclean` deletes one
   contradictory sentence (pure deletions only). Val runs in progress. Details:
   `docs/v7-failure-analysis.md`, update of 2026-11-04.
+
+### 2026-11-05 — submission candidate `order`: val TDS 0.7520, 601/768
+
+- Val, one run each: `checks-val-r1` (checks + preclean, no contract) 564; `combo-val-r1` 589;
+  `combo-z3-val-r1` 594; `cand2-val-r1` (contract always + z3 evidence + adapter) 595;
+  `order-val-r1` (`cand2` + `contract_order`) 601, TDS 0.7520, nDCG 0.910, $0.0045/task.
+- The five contract runs give 589-601 (mean 594) vs. the old candidate's 558-570: the gain holds.
+  Checks and preclean add nothing and stay out. Candidate: v7 + `reorder_arguments` +
+  `contract_question` + `contract_always` + `contract_evidence="solver"` + `contract_order` +
+  `call_adapter`. Details: `docs/v7-failure-analysis.md`, update of 2026-11-04.
 
 ## Repo layout cheat-sheet
 
