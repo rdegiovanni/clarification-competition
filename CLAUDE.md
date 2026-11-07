@@ -408,6 +408,17 @@ Every entry: what changed, why, which script/run measured it, before → after.
   checks it against `laaser_pinpoint_smt_3.py` with the candidate's flags on scripted replies.
   Header from PR #40 (LAASeR - LIST, MIT). Val run pending.
 
+### 2026-11-07 — final: `laaser_contract.py` 603/768 (TDS 0.7520); time budget; z3 options
+
+- **Restarts**: the runner (`clarify/utils.py`) restarts every unfinished task of a batch when
+  one passes 300 s, up to 100 times; z3 on every task made that frequent (`order-val-r1`: 9).
+  `time_budget` (240 s per task, 90 s per LLM call, z3 and verification skipped when little time
+  is left) in `laaser_contract.py` and `laaser_contract_2.py`.
+- Val, one run each: `laaser_contract.py` defaults 603, TDS 0.7520, nDCG 0.9052, $0.0044;
+  `use_solver=False` 595 / 0.7420 / $0.0028, no restarts; `z3_mode="on_code"` 589 / 0.7359;
+  `laaser_contract_2.py` 593 / 0.7395. Submission: `laaser_contract.py` with its defaults.
+  README: `docs/laaser_contract.md`.
+
 ## Repo layout cheat-sheet
 
 - `clarify/algorithms/LAASeRAlgorithm.py` — our submission (only file we're allowed to change for

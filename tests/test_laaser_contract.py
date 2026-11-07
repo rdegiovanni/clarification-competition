@@ -8,6 +8,7 @@ same question and return the same code.
 
 from __future__ import annotations
 
+import time
 import unittest
 
 from test_laaser_pinpoint_smt_3 import CODE_AUDIT, CODE_REPLY, STRICT, TASK, _FakeEnv, ask
@@ -99,7 +100,7 @@ class SameAsDevelopmentFileTest(unittest.TestCase):
 
     def compare(self, replies, task, answer="Counted."):
         new_env, dev_env = _FakeEnv(list(replies), answer), _FakeEnv(list(replies), answer)
-        new = LAASeR_Contract(OFFLINE).run(new_env, task)
+        new = LAASeR_Contract({**OFFLINE, "question_samples": 3}).run(new_env, task)
         dev = LAASeR_PinpointSMT({**CANDIDATE_FLAGS, **OFFLINE}).run(dev_env, task)
         self.assertEqual(new_env.prompts, dev_env.prompts)
         self.assertEqual(new_env.questions, dev_env.questions)
@@ -125,6 +126,48 @@ class SameAsDevelopmentFileTest(unittest.TestCase):
     def test_a_refused_answer(self):
         replies = [ask(STRICT), CODE_REPLY, CONTRACT, CODE_REPLY]
         self.compare(replies, TASK, answer="Please ask one question at a time.")
+
+
+class Z3OnCodeTest(unittest.TestCase):
+    def test_the_audit_codes_and_z3_proves_a_conflict(self):
+        proven = {"question": 'The task says "x", but the example "f(1) == 2" does not hold.'}
+        original = laaser_contract.find_certificate
+        laaser_contract.find_certificate = lambda *args, **kwargs: proven
+        try:
+            env = _FakeEnv([CODE_AUDIT, CODE_REPLY])
+            LAASeR_Contract({**OFFLINE, "z3_mode": "on_code"}).run(env, TASK)
+        finally:
+            laaser_contract.find_certificate = original
+        self.assertEqual(env.questions, [proven["question"]])
+        self.assertFalse(any("Draft:" in p for p in env.prompts))
+
+    def test_the_audit_codes_and_there_is_no_conflict(self):
+        env = _FakeEnv([CODE_AUDIT])
+        LAASeR_Contract({**OFFLINE, "z3_mode": "on_code"}).run(env, TASK)
+        self.assertEqual(env.questions, [])
+
+    def test_the_audit_asks_and_gets_the_contract_question(self):
+        env = _FakeEnv([ask(STRICT), CODE_REPLY, CONTRACT, CODE_REPLY])
+        LAASeR_Contract({**OFFLINE, "z3_mode": "on_code"}).run(env, TASK)
+        self.assertTrue(env.questions[0].startswith("I will assume"))
+
+
+class TimeBudgetTest(unittest.TestCase):
+    def test_a_slow_llm_call_is_cut_and_the_task_still_returns(self):
+        class SlowEnv(_FakeEnv):
+            def llm(self, messages):
+                time.sleep(5)
+                return super().llm(messages)
+
+        laaser_contract.LLM_CALL_TIMEOUT_S, original = 0.2, laaser_contract.LLM_CALL_TIMEOUT_S
+        try:
+            env = SlowEnv([ask(STRICT)] * 10)
+            started = time.monotonic()
+            code = LAASeR_Contract({**OFFLINE, "time_budget": 1}).run(env, TASK)
+        finally:
+            laaser_contract.LLM_CALL_TIMEOUT_S = original
+        self.assertLess(time.monotonic() - started, 4)
+        self.assertIsInstance(code, str)
 
 
 class CallAdapterTest(unittest.TestCase):

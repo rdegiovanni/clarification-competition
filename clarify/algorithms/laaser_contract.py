@@ -59,8 +59,18 @@ return values with what the user really intends. We may ask ONE question. The pi
    runs unchanged.
 
 Interaction with the benchmark is only through `env.llm`, `env.ask_human` (once) and
-`env.exec_code`. z3 (`z3-solver`) is optional: `use_solver=False`, or z3 not installed, skips
-the solver and keeps everything else.
+`env.exec_code`. Two options control z3 (`z3-solver`):
+
+- `use_solver` (default True): False, or z3 not installed, skips the solver everywhere (only
+  type clashes, which need no solver, remain) and keeps everything else.
+- `z3_mode` (default "evidence"): z3 runs on every task and its proven conflict feeds the
+  contract question, which is always asked. "on_code": the contract question is asked only
+  when the audit asks; when the audit would code, z3 looks for a proven conflict and asks
+  about it, else the task is coded without a question.
+
+Each task has a wall-clock budget (`time_budget`, 240 s; at most 90 s per LLM call): the runner
+restarts a whole batch when one task passes 300 s, so z3 and the verification are skipped when
+little time is left.
 
 Team: LAASeR - LIST
 Team Members: Matias Brizzio, Jordi Cabot, Renzo Degiovanni
@@ -75,6 +85,7 @@ import math
 import operator
 import random
 import re
+import threading
 import time
 from collections import Counter
 from fractions import Fraction
@@ -2718,6 +2729,35 @@ ORDER_IN_ANSWER = re.compile(
     re.I,
 )
 
+ORDER_IN_QUESTION = re.compile(r"\bfirst\b[^.?]{0,80}\bsecond\b", re.I)
+
+
+def order_by_examples(env: ClarificationEnvironment, code: str, problem: dict[str, Any]) -> str:
+    """Swap the (scalar, collection) parameters only if the swapped version satisfies more of
+    the stated two-argument examples. Without such examples the code is left untouched."""
+    entry_point = problem["entry_point"]
+    swapped = collection_first(code, entry_point)
+    if swapped == code:
+        return code
+    examples = [e for e in extract_examples(problem["prompt"], entry_point) if len(e["args"]) == 2]
+    if not examples:
+        return code
+    reports = run_candidates(env, [code, swapped], entry_point, [e["args"] for e in examples])
+    if not reports or reports[0] is None or reports[1] is None:
+        return code
+
+    def score(report: dict[str, Any]) -> int:
+        if report["load_error"]:
+            return -1
+        total = 0
+        for (kind, info), example in zip(report["results"], examples, strict=True):
+            found, value = _result(kind, info)
+            if found and same_value(value, example["expected"], strict=True):
+                total += 1
+        return total
+
+    return swapped if score(reports[1]) > score(reports[0]) else code
+
 
 def parameter_roles(function: ast.FunctionDef) -> str:
     """One letter per parameter: C (used as a collection: iterated, indexed, len(), a method
@@ -2781,6 +2821,69 @@ def shows_signature(problem: dict[str, Any]) -> bool:
 
 
 # ---------------------------------------------------------------------------------------------
+# Time budget
+# ---------------------------------------------------------------------------------------------
+# The runner (clarify/utils.py, BatchParallelProcessor) restarts every unfinished task of a batch
+# from scratch as soon as one task runs longer than 300 s, up to 100 times. LLM calls have no
+# timeout of their own, so one slow call can trigger it. TimedEnvironment gives each task a
+# wall-clock budget below that limit: every LLM call waits at most LLM_CALL_TIMEOUT_S, a call
+# after the deadline raises LimitsExceededException (which every step already handles), and the
+# optional steps (z3, verification) are skipped when little time is left.
+TIME_BUDGET_S = 240
+LLM_CALL_TIMEOUT_S = 90
+Z3_MIN_REMAINING_S = 150
+VERIFY_MIN_REMAINING_S = 80
+
+
+def with_timeout(call: Any, seconds: float) -> Any:
+    """call() run in a thread; LimitsExceededException if it does not return within seconds."""
+    box: dict[str, Any] = {}
+
+    def target() -> None:
+        try:
+            box["value"] = call()
+        except BaseException as error:  # re-raised in the caller's thread
+            box["error"] = error
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(max(0.0, seconds))
+    if thread.is_alive():
+        raise LimitsExceededException("An LLM call exceeded its time budget.")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+class TimedEnvironment:
+    """The task's environment with a wall-clock budget (see above); it only forwards calls."""
+
+    def __init__(self, env: ClarificationEnvironment, budget: float):
+        self.env = env
+        self.deadline = time.monotonic() + budget
+
+    def remaining(self) -> float:
+        return self.deadline - time.monotonic()
+
+    def llm(self, messages: Any) -> str:
+        left = self.remaining()
+        if left <= 0:
+            raise LimitsExceededException("The task's time budget is spent.")
+        return with_timeout(lambda: self.env.llm(messages), min(left, LLM_CALL_TIMEOUT_S))
+
+    def ask_human(self, query: str) -> str:
+        return self.env.ask_human(query)
+
+    def can_ask(self) -> bool:
+        return self.env.can_ask()
+
+    def exec_code(self, code: str) -> str:
+        if self.remaining() <= 0:
+            raise LimitsExceededException("The task's time budget is spent.")
+        return self.env.exec_code(code)
+
+
+# ---------------------------------------------------------------------------------------------
 # The algorithm
 # ---------------------------------------------------------------------------------------------
 
@@ -2789,21 +2892,28 @@ class LAASeR_Contract(ClarificationAlgorithmBase):
     DEFAULT_CONFIG = {
         # z3 checks the task's statements against its stated examples (needs z3-solver).
         "use_solver": True,
+        # "evidence": z3 runs on every task and its proven conflict feeds the contract question,
+        # which is always asked. "on_code": the contract question is asked only when the audit
+        # asks; when the audit would code, z3 looks for a proven conflict and asks about it.
+        "z3_mode": "evidence",
         # Drafts written for the contract question; above 1 they run in the sandbox first.
         "contract_drafts": 1,
         # On tasks without a signature, the question names the argument order.
         "contract_order": True,
         # Audits sampled, when no contract question can be written, to choose the question.
-        "question_samples": 3,
+        "question_samples": 1,
         # Verify the final function by execution, comparing this many implementations.
         "verify": True,
         "candidates": 3,
         # Signature fixes on tasks without a signature (step 6).
         "reorder_arguments": True,
         "call_adapter": True,
+        # Wall-clock seconds per task (the runner restarts a batch after 300 s).
+        "time_budget": TIME_BUDGET_S,
     }
 
     def run(self, env: ClarificationEnvironment, problem: dict[str, Any]) -> str:
+        env = TimedEnvironment(env, float(self.config["time_budget"]))
         prompt, entry_point = problem["prompt"], problem["entry_point"]
         rules = _rules(entry_point)
         if RETURN_FORMAT_STATEMENT.search(prompt):
@@ -2817,16 +2927,23 @@ class LAASeR_Contract(ClarificationAlgorithmBase):
             pass  # never lose an already-usable candidate to an unexpected failure
         if _is_placeholder(candidate, entry_point):
             candidate = self.code_without_answer(env, problem, rules) or candidate
-        if self.config["verify"] and not _is_placeholder(candidate, entry_point):
-            candidate = verify_by_execution(
-                env,
-                problem,
-                candidate,
-                clarification,
-                answered,
-                rules,
-                int(self.config["candidates"]),
-            )
+        if (
+            self.config["verify"]
+            and not _is_placeholder(candidate, entry_point)
+            and env.remaining() > VERIFY_MIN_REMAINING_S
+        ):
+            try:
+                candidate = verify_by_execution(
+                    env,
+                    problem,
+                    candidate,
+                    clarification,
+                    answered,
+                    rules,
+                    int(self.config["candidates"]),
+                )
+            except Exception:
+                pass  # keep the candidate when verification runs out of time
         return self.fix_signature(candidate, problem, clarification)
 
     def solve(
@@ -2838,7 +2955,9 @@ class LAASeR_Contract(ClarificationAlgorithmBase):
             env, prompt, entry_point, rules
         )
         asks = decision == "ASK" and bool(question)
-        contract = self.contract_question(env, problem, audit, rules)
+        contract = None
+        if self.config["z3_mode"] == "evidence" or asks:
+            contract = self.contract_question(env, problem, audit, rules)
         if contract:
             decision, question = "ASK", contract
         else:
@@ -2937,7 +3056,9 @@ class LAASeR_Contract(ClarificationAlgorithmBase):
         self, env: ClarificationEnvironment, problem: dict[str, Any], audit: str, rules: str
     ) -> str | None:
         """The contract question, with the z3 evidence (None when it cannot be written)."""
-        evidence = z3_evidence(env, problem, audit, bool(self.config["use_solver"]))
+        evidence = ""
+        if self.config["z3_mode"] == "evidence" and env.remaining() > Z3_MIN_REMAINING_S:
+            evidence = z3_evidence(env, problem, audit, bool(self.config["use_solver"]))
         return contract_question(
             env,
             problem["prompt"],

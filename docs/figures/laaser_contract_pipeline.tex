@@ -1,0 +1,130 @@
+% LAASeR_Contract pipeline (clarify/algorithms/laaser_contract.py).
+% Build: pdflatex laaser_contract_pipeline.tex
+\documentclass[border=14pt]{standalone}
+\usepackage[T1]{fontenc}
+\usepackage[sfdefault]{roboto}
+\usepackage{xcolor}
+\usepackage{fontawesome5}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shadows.blur,fit,backgrounds,calc}
+
+\definecolor{ink}{HTML}{1F2937}
+\definecolor{muted}{HTML}{6B7280}
+\definecolor{askc}{HTML}{2563EB}
+\definecolor{askbg}{HTML}{EFF6FF}
+\definecolor{z3c}{HTML}{7C3AED}
+\definecolor{z3bg}{HTML}{F5F3FF}
+\definecolor{userc}{HTML}{D97706}
+\definecolor{userbg}{HTML}{FFFBEB}
+\definecolor{codec}{HTML}{059669}
+\definecolor{codebg}{HTML}{ECFDF5}
+\definecolor{lane}{HTML}{F9FAFB}
+
+\tikzset{
+  stage/.style={draw=#1, line width=1.1pt, rounded corners=7pt, fill=white,
+    minimum width=6.0cm, minimum height=3.3cm, align=flush left, text width=5.5cm,
+    inner sep=8pt, blur shadow={shadow blur steps=6, shadow xshift=0.6pt,
+    shadow yshift=-0.8pt, shadow opacity=18}, font=\small\color{ink}},
+  num/.style={circle, fill=#1, text=white, font=\bfseries\small, minimum size=0.62cm,
+    inner sep=0pt},
+  flow/.style={-{Stealth[length=3.2mm,width=2.4mm]}, line width=1.4pt, color=#1},
+  lanebox/.style={rounded corners=12pt, fill=#1, draw=none, inner sep=14pt},
+  tag/.style={font=\scriptsize\bfseries, text=#1},
+}
+
+\newcommand{\stagetitle}[3]{{\color{#1}\large\bfseries #2\ \ #3}\\[3pt]}
+
+\hyphenpenalty=10000
+\exhyphenpenalty=10000
+\begin{document}
+\begin{tikzpicture}[node distance=1.15cm and 1.25cm]
+
+% ---------------------------------------------------------------- title
+\node[font=\LARGE\bfseries\color{ink}, anchor=west] (title) at (-3.2, 3.55)
+  {LAASeR\_Contract \textcolor{muted}{\normalfont\Large\ --- one question that lets the user correct a draft}};
+
+% ---------------------------------------------------------------- task
+\node[stage=muted, minimum width=3.6cm, text width=3.1cm, minimum height=3.3cm] (task) at (-1.4,0)
+  {\stagetitle{muted}{\faFile*[regular]}{Task}
+   Prompt and entry point\\[4pt]
+   {\scriptsize\color{muted} may be vague, incomplete or contradictory; hidden tests decide}};
+
+% ---------------------------------------------------------------- question lane
+\node[stage=askc, right=1.0cm of task] (audit)
+  {\stagetitle{askc}{\faSearch}{Pinpoint audit}
+   Lists every defect of the task\\
+   {\scriptsize CONTRADICTION · VAGUE · MISSING · ODD, two readings each, impact HIGH or LOW}\\[3pt]
+   Shape reference for data structures\\
+   Decides {\bfseries ASK} or {\bfseries CODE}};
+
+\node[stage=z3c, right=of audit] (z3)
+  {\stagetitle{z3c}{\faCogs}{z3 evidence}
+   Stated examples give the signature\\
+   The LLM writes SMT-LIB statements; z3 proves a statement and an example \emph{cannot both hold}\\[3pt]
+   {\scriptsize or finds an input where two readings of a defect return different values}};
+
+\node[stage=askc, right=of z3, minimum width=6.4cm, text width=5.9cm] (contract)
+  {\stagetitle{askc}{\faFileContract}{Contract question}
+   Draft written without asking +\\ audit defects + proven conflict\\[3pt]
+   {\scriptsize\itshape\color{ink!80}``I will assume f takes a list first and k second, returns the
+   integer count of items $>$ k, e.g.\ f([1,5,7],5) = 1. Is that right, or should it\,\dots?''}};
+
+% ---------------------------------------------------------------- user
+\node[stage=userc, below=2.3cm of contract, minimum width=6.4cm, text width=5.9cm,
+      minimum height=2.7cm] (user)
+  {\stagetitle{userc}{\faUser}{Simulated user (one turn)}
+   Knows every hidden requirement: one answer corrects the rule, the argument order and the return format, \emph{all at once}};
+
+% ---------------------------------------------------------------- code lane
+\node[stage=codec, left=of user, minimum height=2.7cm] (code)
+  {\stagetitle{codec}{\faCode}{Code with the answer}
+   The answer overrides the text\\
+   Checked (python block, entry point, no placeholder), repaired up to 2 times};
+
+\node[stage=codec, left=of code, minimum height=2.7cm] (verify)
+  {\stagetitle{codec}{\faVial}{Verify by execution}
+   3 implementations run on probe calls; crashes repaired, disputed results arbitrated, fewest problems wins};
+
+\node[stage=codec, left=1.0cm of verify, minimum width=3.6cm, text width=3.1cm,
+      minimum height=2.7cm] (fix)
+  {\stagetitle{codec}{\faWrench}{Signature}
+   collection first\\
+   call adapter:\\
+   {\scriptsize f(arr, n, k) $\rightarrow$ f(arr, k)}};
+
+% ---------------------------------------------------------------- numbers on stages
+\foreach \n/\c/\s in {1/askc/audit, 2/z3c/z3, 3/askc/contract, 4/codec/code, 5/codec/verify, 6/codec/fix}
+  \node[num=\c] at ($(\s.north west)+(0.05,-0.05)$) {\n};
+
+% ---------------------------------------------------------------- arrows
+\draw[flow=muted] (task) -- (audit);
+\draw[flow=askc] (audit) -- node[above, tag=askc] {defects} (z3);
+\draw[flow=z3c] (z3) -- node[above, tag=z3c] {proof} (contract);
+\draw[flow=userc] (contract) -- node[right, tag=userc, align=left] {\faQuestion\ 1 question} (user);
+\draw[flow=userc] (user) -- node[above, tag=userc] {answer} (code);
+\draw[flow=codec] (code) -- (verify);
+\draw[flow=codec] (verify) -- (fix);
+\draw[flow=codec] (fix.south) -- ++(0,-1.2) node[below, font=\bfseries\color{codec}]
+  (out) {\faCheckCircle\ returned function};
+
+% ---------------------------------------------------------------- lanes
+\begin{scope}[on background layer]
+  \node[lanebox=askbg, fit=(audit)(z3)(contract)] (qlane) {};
+  \node[lanebox=codebg, fit=(fix)(verify)(code)] (clane) {};
+  \node[lanebox=userbg, fit=(user)] {};
+\end{scope}
+\node[tag=askc, anchor=south east] at ($(qlane.north east)+(0,0.05)$) {WHAT TO ASK};
+\node[tag=codec, anchor=north east] at ($(clane.south east)+(0,-0.05)$) {WHAT TO RETURN};
+
+% ---------------------------------------------------------------- results
+\node[draw=ink!25, rounded corners=8pt, fill=white, anchor=north, align=left,
+      inner sep=8pt, font=\small\color{ink}] (res) at ($(user.south)+(0,-1.0)$)
+  {{\bfseries Validation split} {\color{muted}(768 tasks, gpt-4.1-mini)}\\[3pt]
+   \begin{tabular}{@{}l@{\hspace{10pt}}r@{\hspace{10pt}}r@{}}
+   & passed & TDS\\
+   one-point question & 563 & 0.705\\
+   \bfseries contract question & \bfseries 601 & \bfseries 0.752\\
+   \end{tabular}};
+
+\end{tikzpicture}
+\end{document}

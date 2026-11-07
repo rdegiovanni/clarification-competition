@@ -805,5 +805,20 @@ Configuration: `use_solver`, `contract_drafts` (1), `contract_order`, `question_
 `verify`, `candidates` (3), `reorder_arguments`, `call_adapter`. `tests/test_laaser_contract.py`
 checks each step and, on scripted replies, that the file makes the same LLM calls, asks the
 same question and returns the same code as `laaser_pinpoint_smt_3.py` with the candidate's flags.
-Val run `submission-val-r1` is pending.
+Val run `submission-val-r1` was cut by the end of a session (71/770); see the update below.
+
+## Update 2026-11-07: final runs of the submission file
+
+| Run | Configuration | Passed | TDS | nDCG | $/task | Restarts |
+|---|---|---|---|---|---|---|
+| `contract1-val` | `laaser_contract.py` defaults (z3 on every task) | 603 | 0.7520 | 0.9052 | 0.0044 | 10 |
+| `contract1-noz3-val` | `use_solver=False` | 595 | 0.7420 | 0.8948 | 0.0028 | 0 |
+| `contract1-z3oncode-val` | `z3_mode="on_code"` | 589 | 0.7359 | 0.8675 | 0.0027 | 0 |
+| `contract2-val` | `laaser_contract_2.py` | 593 | 0.7395 | 0.9039 | 0.0044 | 7 |
+
+"Restarts" counts the runner's watchdog: one task over 300 s restarts its whole batch from
+scratch. The z3 evidence (an LLM call and a solver run on every task) made it frequent, so both
+files now carry `time_budget`. z3 adds 8 tasks over `use_solver=False`, within one run's noise,
+at 57% more cost. In `laaser_contract_2.py` the argument order is swapped only when the swap
+satisfies more stated examples; MBPP states none, so the swap never fires there.
 
